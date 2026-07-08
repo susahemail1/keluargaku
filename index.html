@@ -282,11 +282,12 @@
                                 let nameText = "Tidak Dikenal";
                                 let callText = "";
                                 
-                                if(r.status === "success") {
+                                if(r.status === "success" && r.score >= 0.88) { // FILTER KETAT: Harus >= 88%
                                     nameText = r.person.default_name;
-                                    logToScreen(`✅ Dikenali: ${nameText}`); 
+                                    logToScreen(`✅ Dikenali: ${nameText} (Score: ${r.score.toFixed(2)})`); 
                                     searchTree(nameText);
                                     
+                                    // Identify Call Name
                                     const node = nodes.find(n => n.name === nameText);
                                     if(node) {
                                         const sId = document.getElementById('setUserAs').value;
@@ -298,7 +299,9 @@
                                         }
                                     }
                                 } else {
-                                    logToScreen(`❌ Asing/Low Confidence`);
+                                    nameText = "Tidak Dikenal";
+                                    callText = "";
+                                    logToScreen(`❌ Ragu/Asing (Score: ${r.score ? r.score.toFixed(2) : 'Rendah'}) - Abaikan Identifikasi`);
                                 }
 
                                 const borderBox = document.createElement('div');
@@ -585,8 +588,8 @@
             const getNode = (id) => nodes.find(n => n.id === id) || {};
             const g = gender;
 
-            // Mapping Dasar
-            const m = { 
+            // 1. Mapping spesifik untuk direct line / garis lurus (Atas / Bawah / Pasangan)
+            const direct = { 
                 "S": g === 'L' ? "Suami" : "Istri", 
                 "U": g === 'L' ? "Ayah" : "Ibu", 
                 "U-U": g === 'L' ? "Kakek" : "Nenek", 
@@ -597,69 +600,81 @@
                 "D-D-D": "Buyut",
                 "D-D-D-D": "Canggah",
                 "S-U": g === 'L' ? "Bapak Mertua" : "Ibu Mertua", 
-                "D-S": "Menantu", 
-                "U-D-D": "Keponakan", 
-                "U-U-U-D": g === 'L' ? "Kakek" : "Nenek" // Kakak/Adik dari Kakek/Nenek
+                "D-S": "Menantu"
             };
-            if(m[pathTypes]) return m[pathTypes];
+            if (direct[pathTypes]) return direct[pathTypes];
 
-            // 1. SAUDARA KANDUNG (U-D)
-            if (pathTypes === "U-D") { 
-                const tb = getNode(targetId).birth_order || 0; 
-                const fb = getNode(focalId).birth_order || 0; 
-                if (tb === 0 || fb === 0) return ""; // Jika salah satu tidak ada 'anak ke-', kosongkan
-                if (tb < fb) return g === 'L' ? "Mas" : "Mbak"; // Target lebih tua
-                if (tb > fb) return "Dek"; // Target lebih muda
+            // 2. Analisis Silsilah Collateral (Menyamping)
+            const types = pathTypes.split('-');
+            
+            // Deteksi jika target adalah pasangan dari kerabat darah (Istri Pakde, Suami Sepupu, dll)
+            const isSpouseOfRelative = types[types.length - 1] === 'S';
+            let effectiveTypes = isSpouseOfRelative ? types.slice(0, -1) : types;
+            let effectiveNodes = isSpouseOfRelative ? pathNodes.slice(0, -1) : pathNodes;
+            
+            // Hitung generasi ke Atas (U) dan ke Bawah (D)
+            let uCount = 0, dCount = 0, isValidBloodline = true;
+            for (let i = 0; i < effectiveTypes.length; i++) {
+                if (effectiveTypes[i] === 'U' && dCount === 0) uCount++;
+                else if (effectiveTypes[i] === 'D') dCount++;
+                else isValidBloodline = false; 
             }
 
-            // 2. SAUDARA DARI ORANG TUA / PAMAN & BIBI (U-U-D)
-            if (pathTypes === "U-U-D") {
-                const parentId = pathNodes[1];
-                const pb = getNode(parentId).birth_order || 0;
-                const tb = getNode(targetId).birth_order || 0; // Target adalah si paman/bibi
-                if (pb === 0 || tb === 0) return "";
-                if (tb < pb) return g === 'L' ? "Pakde" : "Budhe";
-                if (tb > pb) return g === 'L' ? "Paklik" : "Bulik";
+            // Jika relasi terlalu kompleks (misal Ipar menyamping)
+            if (!isValidBloodline) {
+                if (pathTypes === "S-U-D") return g === 'L' ? "Kakak/Adik Ipar (L)" : "Kakak/Adik Ipar (P)";
+                return "";
             }
 
-            // 3. PASANGAN DARI PAMAN/BIBI (U-U-D-S)
-            if (pathTypes === "U-U-D-S") {
-                const parentId = pathNodes[1];
-                const uncleAuntId = pathNodes[3];
-                const pb = getNode(parentId).birth_order || 0;
-                const ub = getNode(uncleAuntId).birth_order || 0;
-                if (pb === 0 || ub === 0) return "";
-                if (ub < pb) return g === 'L' ? "Pakde" : "Budhe"; // Ikut panggilan pasangannya
-                if (ub > pb) return g === 'L' ? "Paklik" : "Bulik";
-            }
+            // Memproses relasi darah yang memiliki Common Ancestor (Paman, Sepupu, Keponakan, dll)
+            if (uCount > 0 && dCount > 0) {
+                // Temukan titik percabangan leluhur untuk membandingkan siapa yang garis keturunan "Lebih Tua"
+                const focalBranchId = effectiveNodes[uCount - 1];
+                const targetBranchId = effectiveNodes[uCount + 1];
+                const fb = getNode(focalBranchId).birth_order || 0;
+                const tb = getNode(targetBranchId).birth_order || 0;
+                
+                let isTargetOlderBranch = null;
+                if (fb > 0 && tb > 0 && fb !== tb) {
+                    isTargetOlderBranch = (tb < fb);
+                } else {
+                    return ""; // Syarat mutlak: urutan anak harus diisi & tidak boleh sama untuk membedakan Pakde vs Paklik
+                }
 
-            // 4. SEPUPU (U-U-D-D)
-            if (pathTypes === "U-U-D-D") {
-                const parentId = pathNodes[1];
-                const uncleAuntId = pathNodes[3];
-                const pb = getNode(parentId).birth_order || 0;
-                const ub = getNode(uncleAuntId).birth_order || 0;
-                if (pb === 0 || ub === 0) return "";
-                // Panggilan ke sepupu ditentukan dari umur ORANG TUANYA
-                if (ub < pb) return g === 'L' ? "Mas" : "Mbak"; // Anak pakde/budhe
-                if (ub > pb) return "Dek"; // Anak paklik/bulik
-            }
+                // Delta = Beda Jarak Generasi antara Saya dan Target
+                const delta = uCount - dCount; 
 
-            // 5. PASANGAN DARI SEPUPU (U-U-D-D-S)
-            if (pathTypes === "U-U-D-D-S") {
-                const parentId = pathNodes[1];
-                const uncleAuntId = pathNodes[3];
-                const pb = getNode(parentId).birth_order || 0;
-                const ub = getNode(uncleAuntId).birth_order || 0;
-                if (pb === 0 || ub === 0) return "";
-                if (ub < pb) return g === 'L' ? "Mas" : "Mbak"; 
-                if (ub > pb) return "Dek"; 
+                if (delta === 0) {
+                    // Generasi Selevel (Saudara / Sepupu / Sepupu Dua Kali, dll)
+                    return isTargetOlderBranch ? (g === 'L' ? "Mas" : "Mbak") : "Dek";
+                } 
+                else if (delta === 1) {
+                    // 1 Generasi di Atas (Saudara Orang Tua / Sepupu Orang Tua, dll)
+                    return isTargetOlderBranch ? (g === 'L' ? "Pakde" : "Budhe") : (g === 'L' ? "Paklik" : "Bulik");
+                }
+                else if (delta === 2) {
+                    // 2 Generasi di Atas (Saudara/Sepupu Kakek Nenek)
+                    return g === 'L' ? "Kakek" : "Nenek";
+                }
+                else if (delta === 3) {
+                    return g === 'L' ? "Kakek Buyut" : "Nenek Buyut";
+                }
+                else if (delta === 4) {
+                    return g === 'L' ? "Kakek Canggah" : "Nenek Canggah";
+                }
+                else if (delta === -1) {
+                    // 1 Generasi di Bawah (Anak Saudara / Anak Sepupu)
+                    return "Keponakan";
+                }
+                else if (delta === -2) return "Cucu";
+                else if (delta === -3) return "Buyut";
+                else if (delta === -4) return "Canggah";
             }
 
             return "";
         }
 
-        let zoomLevel = 1, panX = 0, panY = 0, isDragging = false, startX, startY;
+        let zoomLevel = 0.65, panX = 0, panY = 0, isDragging = false, startX, startY;
         let initialPinchDistance = null, initialZoomLevel = 1;
         let draggedNodeId = null, dragStartNodeX, dragStartNodeY, dragStartClientX, dragStartClientY;
         
@@ -678,7 +693,7 @@
             }
             calculateRelations();
         }
-        function resetZoom() { zoomLevel = 1; panX = 0; panY = 0; applyTransform(); onSetUserAsChange(); }
+        function resetZoom() { zoomLevel = 0.65; panX = 0; panY = 0; applyTransform(); onSetUserAsChange(); }
         function searchTree(query) {
             document.querySelectorAll('.node-card').forEach(c => c.classList.remove('highlight')); if(!query) return;
             const f = nodes.find(n => n.name.toLowerCase().includes(query.toLowerCase()));
