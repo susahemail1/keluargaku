@@ -172,9 +172,30 @@
         window.onload = async () => {
             toggleEditMode();
             logToScreen("Load model Face-API...");
+
+            // --- DEBUG INTERCEPTOR START ---
+            const originalFetch = window.fetch;
+            window.fetch = async function(...args) {
+                const url = args[0];
+                console.log(`[FETCH DEBUG] Requesting: ${url}`);
+                
+                const response = await originalFetch.apply(this, args);
+                const clone = response.clone(); // Clone so we don't break the original read
+                
+                try {
+                    const text = await clone.text();
+                    console.log(`[FETCH DEBUG] Response Status: ${response.status} | URL: ${url}`);
+                    console.log(`[FETCH DEBUG] First 100 chars of response: \n${text.substring(0, 100)}`);
+                } catch(e) {
+                    console.log(`[FETCH DEBUG] Could not read text for: ${url}`);
+                }
+                
+                return response;
+            };
+            // --- DEBUG INTERCEPTOR END ---
+
             try {
-                // SOLUTION: Use the jsDelivr CDN pointing to the vladmandic fork's model directory
-                const MODEL_URL = './models';
+                const MODEL_URL = './models'; 
                 
                 await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
@@ -184,7 +205,7 @@
                 document.getElementById('modelStatus').innerText = "✅ AI Ready"; document.getElementById('modelStatus').style.color = "green";
                 loadTreeFromBackend();
             } catch(e) { 
-                console.error(e); // Added this so you can see exact errors in console if it fails
+                console.error("AI MODEL ERROR DETAILS:", e);
                 document.getElementById('modelStatus').innerText = "❌ AI Error"; document.getElementById('modelStatus').style.color = "red"; 
             }
         };
