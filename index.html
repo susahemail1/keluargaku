@@ -407,22 +407,66 @@
         function logToScreen(msg) { const logger = document.getElementById('logger'); logger.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`; logger.scrollTop = logger.scrollHeight; showNotification(msg); }
 
         function jalankanSetupD1() { if(confirm("Reset database?")) fetch(`${API_URL}/setup`).then(r=>r.json()).then(r=>{ logToScreen("Reset OK"); nodes=[]; edges=[]; renderTree();}); }
-        async function loadTreeFromBackend() {
-            try {
-                const res = await (await fetch(`${API_URL}/tree?user_id=${document.getElementById('mockLogin').value}`)).json();
-                nodes = res.nodes || []; edges = res.edges || []; customCalls = {};
-                (res.custom_calls || []).forEach(c => { if(!customCalls[c.viewer_relative_id]) customCalls[c.viewer_relative_id] = {}; customCalls[c.viewer_relative_id][c.target_relative_id] = c.custom_call; });
-                updateDropdownNode(); if(res.my_relative_id) document.getElementById('setUserAs').value = res.my_relative_id;
-                renderTree(); setTimeout(() => onSetUserAsChange(), 150); syncMissingThumbnails();
-            } catch(e) { logToScreen("⚠️ Gagal load tree."); }
-        }
+        
+		async function loadTreeFromBackend() {
+			try {
+				const response = await fetch(`${API_URL}/tree?user_id=${document.getElementById('mockLogin').value}`);
+				
+				// Check if response is ok
+				if (!response.ok) {
+					const errText = await response.text();
+					console.error("Backend Error Response:", errText);
+					return logToScreen(`⚠️ Server returned error: ${response.status}`);
+				}
+
+				const res = await response.json();
+				nodes = res.nodes || []; edges = res.edges || []; customCalls = {};
+				(res.custom_calls || []).forEach(c => { 
+					if(!customCalls[c.viewer_relative_id]) customCalls[c.viewer_relative_id] = {}; 
+					customCalls[c.viewer_relative_id][c.target_relative_id] = c.custom_call; 
+				});
+				updateDropdownNode(); 
+				if(res.my_relative_id) document.getElementById('setUserAs').value = res.my_relative_id;
+				renderTree(); 
+				setTimeout(() => onSetUserAsChange(), 150); 
+				syncMissingThumbnails();
+			} catch(e) { 
+				console.error("Fetch failed entirely:", e);
+				logToScreen("⚠️ Gagal load tree. Format data salah."); 
+			}
+		}
+
         async function saveTreeToBackend() {
-            const flatCustomCalls = []; Object.keys(customCalls).forEach(v => { Object.keys(customCalls[v]).forEach(t => { flatCustomCalls.push({ viewer_id: v, target_id: t, custom_call: customCalls[v][t] }); }); });
-            try {
-                await fetch(`${API_URL}/tree`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user_id: document.getElementById('mockLogin').value, my_relative_id: document.getElementById('setUserAs').value, nodes: nodes, edges: edges, custom_calls: flatCustomCalls }) });
-                logToScreen(`✅ Tree saved.`);
-            } catch(e) { logToScreen("❌ Gagal save."); }
-        }
+			const flatCustomCalls = []; 
+			Object.keys(customCalls).forEach(v => { 
+				Object.keys(customCalls[v]).forEach(t => { 
+					flatCustomCalls.push({ viewer_id: v, target_id: t, custom_call: customCalls[v][t] }); 
+				}); 
+			}); 
+			try {
+				const response = await fetch(`${API_URL}/tree`, { 
+					method: "POST", 
+					headers: { "Content-Type": "application/json" }, 
+					body: JSON.stringify({ 
+						user_id: document.getElementById('mockLogin').value, 
+						my_relative_id: document.getElementById('setUserAs').value, 
+						nodes: nodes, 
+						edges: edges, 
+						custom_calls: flatCustomCalls 
+					}) 
+				});
+
+				if (!response.ok) {
+					const errText = await response.text();
+					console.error("Backend Save Error:", errText);
+					return logToScreen(`❌ Gagal save: ${response.status}`);
+				}
+
+				logToScreen(`✅ Tree saved.`);
+			} catch(e) { 
+				logToScreen("❌ Gagal koneksi ke server."); 
+			}
+		}
 
         function generateId() { return "rel_" + Math.random().toString(36).substr(2, 9); }
         function updateNodeName(id, val) { const n = nodes.find(n => n.id === id); if(n) { n.name = val; updateDropdownNode(); } }
