@@ -282,7 +282,7 @@
                                 let nameText = "Tidak Dikenal";
                                 let callText = "";
                                 
-                                if(r.status === "success" && r.score >= 0.97) { // FILTER KETAT: Harus >= 88%
+                                if(r.status === "success" && r.score >= 0.965) { // FILTER KETAT
                                     nameText = r.person.default_name;
                                     logToScreen(`✅ Dikenali: ${nameText} (Score: ${r.score.toFixed(2)})`); 
                                     searchTree(nameText);
