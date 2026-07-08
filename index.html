@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keluargaku AI - Admin Dashboard v6.5</title>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <style>
+        /* STYLING DASAR & UI */
+        body { font-family: system-ui; padding: 15px; background: #f0f2f5; color: #333; margin: 0; }
+        .card { background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        button { padding: 6px 10px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; margin-right: 5px; font-size: 12px; transition: opacity 0.2s; white-space: nowrap; }
+        button:hover { opacity: 0.8; }
+        input[type="text"], select { padding: 6px; margin-right: 5px; border-radius: 4px; border: 1px solid #ccc; font-size: 12px; }
+        #logger { background: #1e1e1e; color: #00ff00; padding: 15px; font-family: monospace; height: 150px; overflow-y: auto; border-radius: 8px; font-size: 11px; line-height: 1.4; }
+        
+        /* TOASTER NOTIFICATION */
+        #toaster-container { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 10000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast { pointer-events: auto; padding: 12px 20px; border-radius: 8px; box-shadow: 0 6px 16px rgba(0,0,0,0.2); min-width: 250px; text-align: center; font-weight: 500; font-size: 13px; animation: toastSlide 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .toast.notification { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .toast.confirmation { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        
+        /* KARTU INDIVIDU & DRAG DOTS */
+        /* [PATCH 1] Removed width transition and strict 180px width */
+        .node-card { background: #fff; padding: 10px; border-radius: 8px; width: 180px; border: 2px solid #ccc; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: relative; cursor: grab; display: flex; flex-direction: column; align-items: center; z-index: 2; box-sizing: border-box; transition: padding 0.3s; }
+        .node-card.pria { border-color: #4e73df; background: #e8f0fe; }
+        .node-card.wanita { border-color: #e83e8c; background: #fce4ec; }
+        .node-card.highlight { box-shadow: 0 0 15px 5px #ffc107; transform: scale(1.05); }
+        
+        .node-thumbnail { width: 156px; height: 156px; object-fit: cover; border-radius: 6px; border: 1px solid #ccc; margin-bottom: 5px; display: none; pointer-events: none; flex-shrink: 0; }
+        
+        .btn-photo-upload { width: 100%; font-size: 10px; padding: 4px; margin-bottom: 5px; background: #e2e8f0; color: #333; border: 1px solid #cbd5e1; font-weight: bold; }
+        
+        .conn-dot { position: absolute; width: 12px; height: 12px; background: #007bff; border-radius: 50%; opacity: 0; z-index: 10; cursor: crosshair; }
+        .node-card:hover .conn-dot { opacity: 0.4; }
+        .conn-dot.dot-top { top: -6px; left: 50%; margin-left: -6px; }
+        .conn-dot.dot-bottom { bottom: -6px; left: 50%; margin-left: -6px; }
+        .conn-dot.dot-left { top: 50%; left: -6px; margin-top: -6px; }
+        .conn-dot.dot-right { top: 50%; right: -6px; margin-top: -6px; }
+        .calling-name { width: 100%; box-sizing: border-box; color: #198754; font-weight: bold; font-size: 12px; text-align: center; margin-bottom: 5px; background:#f9f9f9; border:1px solid #ddd; padding: 2px; border-radius: 4px; }
+        .node-card select.action-dropdown { width: 100%; margin-top: 5px; padding: 4px; font-size: 11px; }
+
+        /* [PATCH 2] Force touch-action auto on inputs to prevent scroll block on dropdowns */
+        .node-card input, .node-card select, .node-card button, .node-card label { touch-action: auto !important; }
+
+        /* GRID & SVG LINES */
+        #treeViewport { width: 100%; height: 500px; overflow: hidden; background: #fafafa; border: 2px solid #ccc; cursor: grab; position: relative; margin-top: 10px; }
+        #treeViewport.fullscreen-mode { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; margin: 0; border: none; border-radius: 0; touch-action: none; overscroll-behavior: none; }
+        #treeUI { min-width: 100%; min-height: 100%; position: absolute; transform-origin: 0 0; }
+        .node-cluster { position: absolute; padding: 10px; }
+        #treeLines { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible; }
+        path.line-solid { stroke: #555; stroke-width: 3; fill: none; stroke-linecap: round; }
+        path.line-dashed { stroke-width: 3; fill: none; stroke-dasharray: 8,8; stroke-linecap: round; }
+        
+        #floatingSearch { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 100; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; gap: 4px; flex-wrap: nowrap; overflow-x: auto; align-items: center; white-space: nowrap; }
+        #floatingSearch input[type="text"] { width: 80px; flex-shrink: 0; }
+        
+        /* VIEW & EDIT MODE DYNAMIC CLASSES */
+        body:not(.edit-mode) .btn-photo-upload,
+        body:not(.edit-mode) .action-dropdown,
+        body:not(.edit-mode) .edit-only,
+        body:not(.edit-mode) .conn-dot { display: none !important; }
+        
+        body:not(.edit-mode) .node-card {
+            padding: 10px; /* Only height footprint changes via internal items hidden */
+            cursor: grab;
+        }
+        body:not(.edit-mode) .node-card input[type="text"] {
+            font-size: 16px !important; pointer-events: none; background: transparent !important; border: none !important;
+        }
+        body:not(.edit-mode) .calling-name { font-size: 14px !important; }
+
+        /* Modals */
+        #cameraSourceModal, #cropperModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; color: white; }
+    </style>
+</head>
+<body>
+
+    <div id="toaster-container"></div>
+    
+    <div id="cameraSourceModal">
+        <h3>Pilih Sumber Foto</h3>
+        <div style="display:flex; gap:10px; margin-top:15px;">
+            <button onclick="document.getElementById('cameraInput').click(); closeCameraModal();" style="background: #28a745; padding: 10px;">📸 Kamera</button>
+            <button onclick="document.getElementById('galleryInput').click(); closeCameraModal();" style="background: #007bff; padding: 10px;">📁 Galeri</button>
+        </div>
+        <button onclick="closeCameraModal()" style="background: #dc3545; padding: 8px; margin-top: 20px;">Batal</button>
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none;" onchange="handleSearchImage(event)">
+        <input type="file" id="galleryInput" accept="image/*" style="display:none;" onchange="handleSearchImage(event)">
+    </div>
+	<div id="multiFaceModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:10000; flex-direction:column; align-items:center; justify-content:center; color:white;">
+        <h3>📸 Ditemukan Banyak Wajah!</h3>
+        <p>Sistem mendeteksi foto grup. Silakan klik wajah mana yang ingin diproses:</p>
+        <div id="faceOptions" style="display:flex; flex-wrap:wrap; gap:15px; max-width:80%; justify-content:center; margin-bottom: 20px;"></div>
+        <button onclick="document.getElementById('multiFaceModal').style.display='none'" style="background: #dc3545; font-size: 15px; padding: 10px 20px; border:none; border-radius:4px; color:white; cursor:pointer;">Batalkan Upload</button>
+    </div>
+    <div style="display:flex; justify-content: space-between; align-items: center;">
+        <h2 style="font-size: 16px;">Keluargaku AI</h2>
+        <span id="modelStatus" style="color:orange; font-size:12px;">⏳ Loading AI...</span>
+    </div>
+
+    <div class="card">
+        <h3 style="font-size: 14px; margin-top:0;">2. Profile</h3>
+        <div style="display:flex; align-items:center; gap:5px; flex-wrap: wrap;">
+            <label style="font-size:12px;">Login:</label>
+            <select id="mockLogin" onchange="loadTreeFromBackend()">
+                <option value="user_b">Profile1</option>
+                <option value="user_a">Profile2</option>            
+            </select>
+            <button onclick="loadTreeFromBackend()">Reload</button>
+            <button id="btnSetup" onclick="jalankanSetupD1()" style="background: #dc3545;">Reset DB</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 style="font-size: 14px; margin-top:0;">3. Family Tree</h3>
+        <div style="display:flex; gap:5px; margin-bottom: 10px;">
+            <button onclick="generateDefaultTree()" style="background: #17a2b8;">Create New</button>
+            <button onclick="saveTreeToBackend()" style="background: #28a745;">Save</button>
+        </div>
+        
+        <div style="display:flex; flex-wrap: wrap; gap:8px; align-items:center; background: #eef2f7; padding: 8px; border-radius: 6px; font-size:12px;">
+            <div style="display:flex; align-items:center;">
+                <strong>Set User:</strong>
+                <select id="setUserAs" onchange="onSetUserAsChange()"><option value="">-- Pusat --</option></select>
+                <button onclick="calculateRelations()" style="background: #ffc107; color: #000; font-weight: bold; margin-left:4px;">OK</button>
+            </div>
+            <div style="display:flex; align-items:center;">
+                <strong>Target:</strong>
+                <select id="checkRelationTarget"><option value="">-- Target --</option></select>
+                <button onclick="doCheckRelation()" style="background: #6f42c1; margin-left:4px;">Cek</button>
+            </div>
+            <strong id="relationResult" style="color:#d63384; font-size:13px;"></strong>
+        </div>
+        
+        <div id="treeViewport">
+            <div id="floatingSearch">
+                <input type="text" id="searchNode" placeholder="Cari nama..." onkeyup="searchTree(this.value)">
+                <button onclick="resetZoom()" style="background: #495057;">Default View</button>
+                <button onclick="openCameraModal()" style="background: #20c997; color: #fff;">Find</button>
+                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: bold; background: #eee; padding: 4px 6px; border-radius: 4px; cursor: pointer; color: #333;">
+                    <input type="checkbox" id="editModeToggle" onchange="toggleEditMode()" style="margin:0;"> Edit
+                </label>
+                <button id="btnFullscreen" onclick="toggleFullscreen()" style="background: #0dcaf0; color: #000; font-weight: bold;">Fullscreen</button>
+            </div>
+            <div id="treeUI"><svg id="treeLines"></svg></div>
+        </div>
+        
+        <div id="searchResultDisplay" style="display:none; margin-top: 15px; width: 100%;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px;">
+                <h4 style="margin: 0; font-size: 14px;">📷 Hasil Pencarian Wajah</h4>
+                <button onclick="document.getElementById('searchResultDisplay').style.display='none'" style="background:#dc3545;">Tutup</button>
+            </div>
+            <div id="searchResultImgContainer" style="position:relative; width:100%; background: #000; border-radius: 8px; overflow: hidden;">
+                <img id="searchResultImg" style="width:100%; display:block;">
+                <div id="searchResultOverlays"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="card">
+        <h3 style="font-size: 14px; margin-top:0;">Log</h3>
+        <div id="logger"></div>
+    </div>
+
+    <script>
+        const API_URL = "https://keluargaku-backend.susahemail1.workers.dev/api"; 
+        let isModelReady = false;
+        let nodes = []; let edges = []; let customCalls = {}; let uploadedGlobalFile = null;
+
+        window.onload = async () => {
+            toggleEditMode();
+            logToScreen("Load model Face-API...");
+            try {
+                // SOLUTION: Use the jsDelivr CDN pointing to the vladmandic fork's model directory
+                const MODEL_URL = '/models';
+                
+                await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+                
+                isModelReady = true; 
+                document.getElementById('modelStatus').innerText = "✅ AI Ready"; document.getElementById('modelStatus').style.color = "green";
+                loadTreeFromBackend();
+            } catch(e) { 
+                console.error(e); // Added this so you can see exact errors in console if it fails
+                document.getElementById('modelStatus').innerText = "❌ AI Error"; document.getElementById('modelStatus').style.color = "red"; 
+            }
+        };
+
+        function toggleEditMode() {
+            const isEdit = document.getElementById('editModeToggle').checked;
+            if (isEdit) document.body.classList.add('edit-mode');
+            else document.body.classList.remove('edit-mode');
+            setTimeout(renderLines, 300);
+        }
+
+        function toggleFullscreen() {
+            const vp = document.getElementById('treeViewport');
+            const btn = document.getElementById('btnFullscreen');
+            vp.classList.toggle('fullscreen-mode');
+            
+            if (vp.classList.contains('fullscreen-mode')) {
+                btn.innerText = "Exit"; btn.style.background = "#dc3545"; btn.style.color = "#fff";
+                document.body.style.overflow = "hidden";
+            } else {
+                btn.innerText = "Fullscreen"; btn.style.background = "#0dcaf0"; btn.style.color = "#000";
+                document.body.style.overflow = "auto";
+            }
+            setTimeout(() => { renderLines(); resetZoom(); }, 100);
+        }
+
+        function openCameraModal() { document.getElementById('cameraSourceModal').style.display = 'flex'; }
+        function closeCameraModal() { document.getElementById('cameraSourceModal').style.display = 'none'; }
+
+        function handleSearchImage(e) {
+            const file = e.target.files[0]; if(!file) return; e.target.value = ''; 
+            if(!isModelReady) return logToScreen("⚠️ Loading AI...");
+            if (document.getElementById('treeViewport').classList.contains('fullscreen-mode')) toggleFullscreen(); 
+            processPhotoFaceAPI(file, null, true); 
+        }
+
+        async function processPhotoFaceAPI(file, relativeId, isSearch = false) {
+            logToScreen(isSearch ? "🔍 Menganalisa wajah dari foto..." : "🧠 Mendaftarkan wajah...");
+            const img = new Image(); img.src = URL.createObjectURL(file);
+            img.onload = async () => {
+                const detections = await faceapi.detectAllFaces(img).withFaceLandmarks().withFaceDescriptors();
+                if (detections.length === 0) return logToScreen("❌ Wajah tidak terdeteksi.");
+                
+                if (isSearch) {
+                    detections.sort((a, b) => a.detection.box.x - b.detection.box.x);
+                    const batchVectors = detections.map(f => Array.from(f.descriptor));
+                    
+                    try {
+                        const res = await (await fetch(`${API_URL}/search-batch`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vectors: batchVectors }) })).json();
+                        
+                        // [PATCH 3] Show Result Image & Overlay
+                        const searchArea = document.getElementById('searchResultDisplay');
+                        const searchImg = document.getElementById('searchResultImg');
+                        const overlays = document.getElementById('searchResultOverlays');
+                        
+                        searchArea.style.display = 'block';
+                        searchImg.src = img.src;
+                        overlays.innerHTML = '';
+
+                        // Give UI time to render img tag full width to get accurate offsetWidth
+                        setTimeout(() => {
+                            const scale = searchImg.offsetWidth / img.width;
+
+                            res.results.forEach((r, index) => {
+                                const box = detections[index].detection.box;
+                                let nameText = "Tidak Dikenal";
+                                let callText = "";
+                                
+                                if(r.status === "success") {
+                                    nameText = r.person.default_name;
+                                    logToScreen(`✅ Dikenali: ${nameText}`); 
+                                    searchTree(nameText);
+                                    
+                                    // Identify Call Name
+                                    const node = nodes.find(n => n.name === nameText);
+                                    if(node) {
+                                        const sId = document.getElementById('setUserAs').value;
+                                        if(sId) {
+                                            const relations = runBFS(sId);
+                                            if (node.id === sId) callText = "SAYA";
+                                            else if (customCalls[sId] && customCalls[sId][node.id]) callText = customCalls[sId][node.id];
+                                            else if (relations[node.id]) callText = getCallingName(relations[node.id].types, relations[node.id].nodes, node.gender, sId, node.id);
+                                        }
+                                    }
+                                } else {
+                                    logToScreen(`❌ Asing/Low Confidence`);
+                                }
+
+                                // Border Outline
+                                const borderBox = document.createElement('div');
+                                borderBox.style.position = 'absolute';
+                                borderBox.style.border = '2px solid #0dcaf0';
+                                borderBox.style.borderRadius = '6px';
+                                borderBox.style.left = (box.x * scale) + 'px';
+                                borderBox.style.top = (box.y * scale) + 'px';
+                                borderBox.style.width = (box.width * scale) + 'px';
+                                borderBox.style.height = (box.height * scale) + 'px';
+
+                                // Text Label underneath face
+                                const textBox = document.createElement('div');
+                                textBox.style.position = 'absolute';
+                                textBox.style.left = (box.x * scale) + 'px';
+                                textBox.style.top = ((box.y + box.height) * scale + 6) + 'px'; // Just below box
+                                textBox.style.width = (box.width * scale) + 'px';
+                                textBox.style.textAlign = 'center';
+                                textBox.style.color = '#fff';
+                                textBox.style.textShadow = '1px 1px 3px #000, -1px -1px 3px #000, 1px -1px 3px #000, -1px 1px 3px #000';
+                                textBox.style.fontWeight = 'bold';
+                                textBox.style.fontSize = '14px';
+                                textBox.style.lineHeight = '1.3';
+                                
+                                if(callText) {
+                                    textBox.innerHTML = `<span style="color:#0dcaf0;">${callText}</span><br>${nameText}`;
+                                } else {
+                                    textBox.innerHTML = `${nameText}`;
+                                }
+
+                                overlays.appendChild(borderBox);
+                                overlays.appendChild(textBox);
+                            });
+                            // Scroll to results cleanly
+                            searchArea.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                        }, 150);
+
+                    } catch(e) { logToScreen("❌ Error fetch server."); }
+                } else {
+                    if (detections.length === 1) {
+                        // Jika hanya ada 1 wajah, langsung crop dan upload
+                        const box = detections[0].detection.box; const canvas = document.createElement('canvas'); canvas.width = box.width; canvas.height = box.height;
+                        canvas.getContext('2d').drawImage(img, box.x, box.y, box.width, box.height, 0, 0, box.width, box.height);
+                        uploadVectorToBackend(canvas.toDataURL('image/jpeg', 0.9), Array.from(detections[0].descriptor), relativeId);
+                    } else if (detections.length > 1) {
+                        // Jika ada banyak wajah, tampilkan modal pemilihan
+                        logToScreen("⚠️ Ditemukan banyak wajah. Mohon pilih satu.");
+                        document.getElementById('multiFaceModal').style.display = 'flex';
+                        const container = document.getElementById('faceOptions');
+                        container.innerHTML = '';
+                        
+                        detections.forEach((det) => {
+                            const box = det.detection.box;
+                            const canvas = document.createElement('canvas');
+                            canvas.width = box.width; canvas.height = box.height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, box.x, box.y, box.width, box.height, 0, 0, box.width, box.height);
+                            
+                            const faceImg = document.createElement('img');
+                            faceImg.src = canvas.toDataURL('image/jpeg', 0.9);
+                            faceImg.style.width = '120px'; faceImg.style.borderRadius = '8px';
+                            faceImg.style.cursor = 'pointer'; faceImg.style.border = '3px solid transparent';
+                            faceImg.style.background = '#000';
+                            
+                            faceImg.onmouseover = () => faceImg.style.border = '3px solid #007bff';
+                            faceImg.onmouseout = () => faceImg.style.border = '3px solid transparent';
+                            faceImg.onclick = () => {
+                                document.getElementById('multiFaceModal').style.display = 'none';
+                                uploadVectorToBackend(faceImg.src, Array.from(det.descriptor), relativeId);
+                            };
+                            container.appendChild(faceImg);
+                        });
+                    }
+                }
+            };
+        }
+
+        async function uploadVectorToBackend(base64Data, vector, relativeId) {
+			// [PATCH] Mengambil nama langsung dari data Node, bukan dari HTML yang sudah dihapus
+			let personName = "Unknown";
+			if (relativeId) {
+				const node = nodes.find(n => n.id === relativeId);
+				if (node) personName = node.name;
+			}
+
+			const payload = { 
+				user_id: document.getElementById('mockLogin').value, 
+				relative_id: relativeId, 
+				name: personName, 
+				photo_base64: base64Data, 
+				vector_128: vector 
+			};
+
+			try {
+				const res = await (await fetch(`${API_URL}/upload`, { 
+					method: "POST", 
+					headers: { "Content-Type": "application/json" }, 
+					body: JSON.stringify(payload) 
+				})).json();
+				
+				if (relativeId || res.relative_id) saveThumbnailToDB(relativeId || res.relative_id, base64Data);
+				if(!relativeId) loadTreeFromBackend(); 
+				logToScreen(`✅ Wajah disimpan.`);
+			} catch(err) { 
+				logToScreen("❌ Gagal upload."); 
+			}
+		}
+
+        let db; const photoCache = {}; 
+        const dbReq = indexedDB.open("KeluargakuDB", 1);
+        dbReq.onupgradeneeded = (e) => { db = e.target.result; if(!db.objectStoreNames.contains('thumbnails')) db.createObjectStore('thumbnails', { keyPath: 'id' }); };
+        dbReq.onsuccess = (e) => { db = e.target.result; if(db) { const tx = db.transaction('thumbnails', 'readonly'); tx.objectStore('thumbnails').getAll().onsuccess = (e) => { e.target.result.forEach(i => { photoCache[i.id] = i.data; }); renderTree(); }; } };
+        function saveThumbnailToDB(id, base64Data) {
+            photoCache[id] = base64Data; if(!db) return;
+            db.transaction('thumbnails', 'readwrite').objectStore('thumbnails').put({ id: id, data: base64Data });
+            const imgEl = document.getElementById(`photo_${id}`); if(imgEl) { imgEl.src = base64Data; imgEl.style.display = 'block'; }
+        }
+        async function syncMissingThumbnails() {
+            for (const n of nodes) {
+                if (!photoCache[n.id]) {
+                    try {
+                        const res = await fetch(`${API_URL}/photo?relative_id=${n.id}`);
+                        if (res.ok) { const data = await res.json(); if (data.status === "success" && data.photo_base64) saveThumbnailToDB(n.id, data.photo_base64); }
+                    } catch (e) {}
+                }
+            }
+        }
+
+        function showNotification(msg) {
+            const container = document.getElementById('toaster-container'); const toast = document.createElement('div'); toast.className = 'toast notification'; toast.innerHTML = msg;
+            container.appendChild(toast); setTimeout(() => { toast.style.opacity = 0; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+        function logToScreen(msg) { const logger = document.getElementById('logger'); logger.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`; logger.scrollTop = logger.scrollHeight; showNotification(msg); }
+
+        function jalankanSetupD1() { if(confirm("Reset database?")) fetch(`${API_URL}/setup`).then(r=>r.json()).then(r=>{ logToScreen("Reset OK"); nodes=[]; edges=[]; renderTree();}); }
+        async function loadTreeFromBackend() {
+            try {
+                const res = await (await fetch(`${API_URL}/tree?user_id=${document.getElementById('mockLogin').value}`)).json();
+                nodes = res.nodes || []; edges = res.edges || []; customCalls = {};
+                (res.custom_calls || []).forEach(c => { if(!customCalls[c.viewer_relative_id]) customCalls[c.viewer_relative_id] = {}; customCalls[c.viewer_relative_id][c.target_relative_id] = c.custom_call; });
+                updateDropdownNode(); if(res.my_relative_id) document.getElementById('setUserAs').value = res.my_relative_id;
+                renderTree(); setTimeout(() => onSetUserAsChange(), 150); syncMissingThumbnails();
+            } catch(e) { logToScreen("⚠️ Gagal load tree."); }
+        }
+        async function saveTreeToBackend() {
+            const flatCustomCalls = []; Object.keys(customCalls).forEach(v => { Object.keys(customCalls[v]).forEach(t => { flatCustomCalls.push({ viewer_id: v, target_id: t, custom_call: customCalls[v][t] }); }); });
+            try {
+                await fetch(`${API_URL}/tree`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user_id: document.getElementById('mockLogin').value, my_relative_id: document.getElementById('setUserAs').value, nodes: nodes, edges: edges, custom_calls: flatCustomCalls }) });
+                logToScreen(`✅ Tree saved.`);
+            } catch(e) { logToScreen("❌ Gagal save."); }
+        }
+
+        function generateId() { return "rel_" + Math.random().toString(36).substr(2, 9); }
+        function updateNodeName(id, val) { const n = nodes.find(n => n.id === id); if(n) { n.name = val; updateDropdownNode(); } }
+        function updateGender(id, val) { nodes.find(n => n.id === id).gender = val; calculateRelations(); renderTree(); }
+        function updateBirthOrder(id, val) { nodes.find(n => n.id === id).birth_order = parseInt(val) || 0; calculateRelations(); }
+        function updateCustomCall(targetId, val) { const v = document.getElementById('setUserAs').value; if(v) { if(!customCalls[v]) customCalls[v]={}; customCalls[v][targetId] = val; } }
+        function updateDropdownNode() {
+            const selUser = document.getElementById('setUserAs'); const selCheck = document.getElementById('checkRelationTarget'); const prevUser = selUser.value; const prevCheck = selCheck.value;
+            selUser.innerHTML = '<option value="">-- Pusat --</option>'; selCheck.innerHTML = '<option value="">-- Target --</option>';
+            nodes.forEach(n => { const opt = `<option value="${n.id}">${n.name}</option>`; selUser.innerHTML += opt; selCheck.innerHTML += opt; });
+            selUser.value = prevUser; selCheck.value = prevCheck;
+        }
+
+        function renderTree() {
+            const container = document.getElementById('treeUI'); Array.from(container.children).forEach(el => { if(el.id !== 'treeLines') el.remove(); });
+            nodes.forEach(n => {
+                const cluster = document.createElement('div'); cluster.className = 'node-cluster'; cluster.style.left = (n.customX || 0) + 'px'; cluster.style.top = (n.customY || 0) + 'px';
+                cluster.innerHTML = createCardDOM(n.id); container.appendChild(cluster);
+            });
+            setTimeout(() => { calculateRelations(); renderLines(); }, 50);
+        }
+        function createCardDOM(id) {
+            const node = nodes.find(n => n.id === id); const imgData = photoCache[id];
+            
+            // [PATCH 2] Added onmousedown, ontouchstart, ontouchmove stopPropagation to the dropdown select list
+            return `
+                <div class="node-card ${node.gender === 'P' ? 'wanita' : 'pria'}" id="card_${id}" onmousedown="startCardDrag(event, '${id}')" ontouchstart="startCardDrag(event, '${id}')">
+                    <div class="conn-dot dot-top" data-id="${id}" onmousedown="startConnect(event)" ontouchstart="startConnect(event)"></div>
+					<div class="conn-dot dot-bottom" data-id="${id}" onmousedown="startConnect(event)" ontouchstart="startConnect(event)"></div>
+                    <img id="photo_${id}" class="node-thumbnail" src="${imgData || ''}" style="display: ${imgData ? 'block' : 'none'};">
+                    <input type="file" id="file_${id}" style="display:none;" accept="image/*" onchange="if(this.files[0]) processPhotoFaceAPI(this.files[0], '${id}', false)">
+                    <button class="btn-photo-upload" onclick="document.getElementById('file_${id}').click()">📷 Foto</button>
+                    
+                    <input type="text" value="${node.name}" onchange="updateNodeName('${id}', this.value)" style="width:100%; border:none; text-align:center; background:transparent; font-weight:bold; font-size:14px; margin-bottom:4px; box-sizing: border-box;">
+                    
+                    <div style="width: 100%; text-align:center;"><input type="text" class="calling-name" onchange="updateCustomCall('${id}', this.value)" placeholder="Panggilan"></div>
+                    
+                    <div class="edit-only" style="display:flex; justify-content:center; align-items:center; gap:10px; width:100%; margin-top:5px; font-size:11px;">
+                        <input type="number" min="1" placeholder="Anak Ke-" value="${node.birth_order || ''}" onchange="updateBirthOrder('${id}', this.value)" style="width:60px; text-align:center; font-size:11px; padding:2px;">
+                        <div style="display:flex; gap:4px;">
+                            <label><input type="radio" name="g_${id}" ${node.gender !== 'P' ? 'checked' : ''} onchange="updateGender('${id}', 'L')"> L</label>
+                            <label><input type="radio" name="g_${id}" ${node.gender === 'P' ? 'checked' : ''} onchange="updateGender('${id}', 'P')"> P</label>
+                        </div>
+                    </div>
+
+                    <select class="action-dropdown" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" ontouchmove="event.stopPropagation()" onchange="handleAction('${id}', this.value); this.value=''">
+                        <option value="">[ + Tambah / Aksi ]</option>
+                        <option value="HAPUS">❌ Hapus Kartu</option>
+                        <optgroup label="Ortu">
+                            <option value="ORTU_KANDUNG">Ortu Kandung</option>
+                            <option value="ORTU_ANGKAT">Ortu Angkat</option>
+                            <option value="MERTUA">Mertua</option>
+                        </optgroup>
+                        <optgroup label="Samping">
+                            <option value="PASANGAN">Pasangan</option>
+                            <option value="KAKAK">Saudara</option>
+                            <option value="SAHABAT">Sahabat</option>
+                        </optgroup>
+                        <optgroup label="Anak">
+                            <option value="ANAK_KANDUNG">Anak Kandung</option>
+                            <option value="ANAK_ANGKAT">Anak Angkat</option>
+                        </optgroup>
+                    </select>
+                </div>`;
+        }
+        function getAdjacencyList() {
+            const adj = {}; nodes.forEach(n => adj[n.id] = []); const spouses = {};
+            edges.forEach(e => {
+                const type = e.type || 'ANAK_KANDUNG';
+                if (['ANAK_KANDUNG', 'ANAK_ANGKAT', 'ORTU_ANGKAT', 'MERTUA'].includes(type)) { adj[e.child].push({ to: e.parent, dir: 'U' }); adj[e.parent].push({ to: e.child, dir: 'D' }); } 
+                else if (['PASANGAN'].includes(type)) { adj[e.parent].push({ to: e.child, dir: 'S' }); adj[e.child].push({ to: e.parent, dir: 'S' }); spouses[e.parent] = spouses[e.parent] || []; spouses[e.parent].push(e.child); spouses[e.child] = spouses[e.child] || []; spouses[e.child].push(e.parent); }
+            });
+            edges.forEach(e => { if (['ANAK_KANDUNG', 'ANAK_ANGKAT'].includes(e.type||'ANAK_KANDUNG')) { (spouses[e.parent] || []).forEach(spId => { if (!adj[e.child].find(x => x.to === spId && x.dir === 'U')) { adj[e.child].push({ to: spId, dir: 'U' }); adj[spId].push({ to: e.child, dir: 'D' }); } }); } }); return adj;
+        }
+        function runBFS(startId) {
+            const adj = getAdjacencyList(); const queue = [{ id: startId, pathTypes: "", pathNodes: [startId] }]; const visited = new Set([startId]); const relationsMap = {};
+            while(queue.length > 0) { const curr = queue.shift(); relationsMap[curr.id] = { types: curr.pathTypes, nodes: curr.pathNodes }; adj[curr.id].forEach(nbr => { if(!visited.has(nbr.to)) { visited.add(nbr.to); queue.push({ id: nbr.to, pathTypes: curr.pathTypes ? curr.pathTypes + "-" + nbr.dir : nbr.dir, pathNodes: [...curr.pathNodes, nbr.to] }); } }); } return relationsMap;
+        }
+        function calculateRelations() {
+            const startId = document.getElementById('setUserAs').value; document.querySelectorAll('.calling-name').forEach(inp => inp.value = ""); if(!startId) return; const relations = runBFS(startId);
+            nodes.forEach(n => {
+                let callName = "";
+                if (n.id === startId) callName = "SAYA"; else if (customCalls[startId] && customCalls[startId][n.id]) callName = customCalls[startId][n.id]; else if (relations[n.id]) callName = getCallingName(relations[n.id].types, relations[n.id].nodes, n.gender, startId, n.id);
+                const card = document.getElementById(`card_${n.id}`); if(card) { const lbl = card.querySelector('.calling-name'); if(lbl) lbl.value = callName; }
+            });
+        }
+        function doCheckRelation() {
+            const sId = document.getElementById('setUserAs').value; const tId = document.getElementById('checkRelationTarget').value; const res = document.getElementById('relationResult');
+            if(!sId || !tId) { res.innerText = "Pilih Pusat & Target"; return; } if(sId === tId) { res.innerText = "SAYA"; return; } if(customCalls[sId] && customCalls[sId][tId]) { res.innerText = customCalls[sId][tId]; return; }
+            const relations = runBFS(sId); if(relations[tId]) { const tNode = nodes.find(n => n.id === tId); res.innerText = getCallingName(relations[tId].types, relations[tId].nodes, tNode.gender, sId, tId) || "Tidak Diketahui"; } else res.innerText = "Tidak ada";
+        }
+        function getCallingName(pathTypes, pathNodes, gender, focalId, targetId) {
+            const m = { "S": gender === 'L' ? "Suami" : "Istri", "U": gender === 'L' ? "Ayah" : "Ibu", "S-U": gender === 'L' ? "Bp Mertua" : "Ibu Mertua", "U-U": gender === 'L' ? "Kakek" : "Nenek", "D": "Anak", "D-D": "Cucu", "U-D-D": "Keponakan", "D-S": "Menantu" };
+            if(m[pathTypes]) return m[pathTypes];
+            if (pathTypes === "U-D") { const tb = (nodes.find(n=>n.id===targetId)||{}).birth_order||0; const fb = (nodes.find(n=>n.id===focalId)||{}).birth_order||0; if (tb>0 && fb>0) { if (tb<fb) return gender==='L'?"Kakak (M)":"Kakak (F)"; if (tb>fb) return "Adik"; } return gender==='L'?"Saudara (M)":"Saudara (F)"; }
+            return "";
+        }
+
+        let zoomLevel = 1, panX = 0, panY = 0, isDragging = false, startX, startY;
+        let initialPinchDistance = null, initialZoomLevel = 1;
+        let draggedNodeId = null, dragStartNodeX, dragStartNodeY, dragStartClientX, dragStartClientY;
+        
+        const viewport = document.getElementById('treeViewport'), treeUI = document.getElementById('treeUI');
+
+        function applyTransform() { treeUI.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`; }
+        function onSetUserAsChange() {
+            const userId = document.getElementById('setUserAs').value;
+            if(userId) {
+                document.querySelectorAll('.node-card').forEach(c => c.classList.remove('highlight'));
+                const el = document.getElementById('card_' + userId);
+                if(el) {
+                    el.classList.add('highlight'); const n = nodes.find(x => x.id === userId); const viewRect = viewport.getBoundingClientRect();
+                    panX = (viewRect.width / 2) - ((n.customX||0) + 90) * zoomLevel; panY = (viewRect.height / 2) - ((n.customY||0) + 120) * zoomLevel; applyTransform();
+                }
+            }
+            calculateRelations();
+        }
+        function resetZoom() { zoomLevel = 1; panX = 0; panY = 0; applyTransform(); onSetUserAsChange(); }
+        function searchTree(query) {
+            document.querySelectorAll('.node-card').forEach(c => c.classList.remove('highlight')); if(!query) return;
+            const f = nodes.find(n => n.name.toLowerCase().includes(query.toLowerCase()));
+            if(f) { const el = document.getElementById('card_' + f.id); if(el) { el.classList.add('highlight'); const v = viewport.getBoundingClientRect(); panX = (v.width / 2) - ((f.customX||0) + 90) * zoomLevel; panY = (v.height / 2) - ((f.customY||0) + 120) * zoomLevel; applyTransform(); } }
+        }
+
+        function startCardDrag(e, id) {
+            const editToggle = document.getElementById('editModeToggle');
+            if(editToggle && !editToggle.checked) return; 
+            
+			// [PATCH] Tambahkan baris ini untuk mencegah drag kartu saat dot ditarik
+            if (e.target && e.target.classList.contains('conn-dot')) return;
+			
+            draggedNodeId = id;
+            const node = nodes.find(n => n.id === id);
+            dragStartNodeX = node.customX || 0;
+            dragStartNodeY = node.customY || 0;
+
+            if (e.touches && e.touches.length > 0) {
+                dragStartClientX = e.touches[0].clientX;
+                dragStartClientY = e.touches[0].clientY;
+            } else {
+                dragStartClientX = e.clientX;
+                dragStartClientY = e.clientY;
+            }
+            e.stopPropagation(); 
+        }
+
+        viewport.addEventListener('mousedown', (e) => { 
+            if(draggedNodeId) return; 
+            if(['INPUT', 'SELECT', 'OPTION', 'BUTTON', 'LABEL'].includes(e.target.tagName)) return; 
+            isDragging = true; viewport.style.cursor = 'grabbing'; 
+            startX = e.clientX - panX; startY = e.clientY - panY; 
+        });
+        window.addEventListener('mouseup', () => { 
+            isDragging = false; 
+            if(draggedNodeId) { renderLines(); draggedNodeId = null; }
+            viewport.style.cursor = 'grab'; 
+        });
+        window.addEventListener('mousemove', (e) => { 
+            if(draggedNodeId) {
+                const node = nodes.find(n => n.id === draggedNodeId);
+                if (node) {
+                    node.customX = dragStartNodeX + ((e.clientX - dragStartClientX) / zoomLevel);
+                    node.customY = dragStartNodeY + ((e.clientY - dragStartClientY) / zoomLevel);
+                    const cluster = document.getElementById(`card_${draggedNodeId}`).parentElement;
+                    cluster.style.left = node.customX + 'px';
+                    cluster.style.top = node.customY + 'px';
+                    renderLines();
+                }
+                return;
+            }
+            if(isDragging) { panX = e.clientX - startX; panY = e.clientY - startY; applyTransform(); } 
+        });
+        
+        viewport.addEventListener('wheel', (e) => { 
+            e.preventDefault(); const v = viewport.getBoundingClientRect(); 
+            const mouseX = e.clientX - v.left; const mouseY = e.clientY - v.top; 
+            const targetX = (mouseX - panX) / zoomLevel; const targetY = (mouseY - panY) / zoomLevel; 
+            const newZoom = Math.max(0.2, Math.min(zoomLevel + (e.deltaY > 0 ? -0.1 : 0.1), 3)); 
+            panX = mouseX - (targetX * newZoom); panY = mouseY - (targetY * newZoom); 
+            zoomLevel = newZoom; applyTransform(); 
+        }, { passive: false });
+
+        viewport.addEventListener('touchstart', (e) => {
+            if(['INPUT', 'SELECT', 'OPTION', 'BUTTON', 'LABEL'].includes(e.target.tagName)) return;
+            if (!viewport.classList.contains('fullscreen-mode')) return;
+            if (draggedNodeId) return; 
+
+            if (e.touches.length === 1) { 
+                isDragging = true; 
+                startX = e.touches[0].clientX - panX; 
+                startY = e.touches[0].clientY - panY; 
+            } else if (e.touches.length === 2) {
+                isDragging = false; 
+                initialPinchDistance = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                initialZoomLevel = zoomLevel;
+            }
+        }, { passive: false });
+
+        viewport.addEventListener('touchmove', (e) => {
+            if(['INPUT', 'SELECT', 'OPTION', 'BUTTON', 'LABEL'].includes(e.target.tagName)) return;
+            if (!viewport.classList.contains('fullscreen-mode')) return;
+            e.preventDefault(); 
+
+            if (draggedNodeId && e.touches.length === 1) {
+                const node = nodes.find(n => n.id === draggedNodeId);
+                if (node) {
+                    node.customX = dragStartNodeX + ((e.touches[0].clientX - dragStartClientX) / zoomLevel);
+                    node.customY = dragStartNodeY + ((e.touches[0].clientY - dragStartClientY) / zoomLevel);
+                    const cluster = document.getElementById(`card_${draggedNodeId}`).parentElement;
+                    cluster.style.left = node.customX + 'px';
+                    cluster.style.top = node.customY + 'px';
+                    renderLines();
+                }
+                return;
+            }
+
+            if (isDragging && e.touches.length === 1) {
+                panX = e.touches[0].clientX - startX; 
+                panY = e.touches[0].clientY - startY; 
+                applyTransform();
+            } else if (e.touches.length === 2 && initialPinchDistance) {
+                const t1 = e.touches[0], t2 = e.touches[1];
+                const currentDistance = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+                const pinchCenterX = (t1.clientX + t2.clientX) / 2;
+                const pinchCenterY = (t1.clientY + t2.clientY) / 2;
+                const newZoom = Math.max(0.2, Math.min(initialZoomLevel * (currentDistance / initialPinchDistance), 3));
+                const v = viewport.getBoundingClientRect();
+                const focusX = pinchCenterX - v.left;
+                const focusY = pinchCenterY - v.top;
+                const targetX = (focusX - panX) / zoomLevel;
+                const targetY = (focusY - panY) / zoomLevel;
+
+                panX = focusX - (targetX * newZoom);
+                panY = focusY - (targetY * newZoom);
+                zoomLevel = newZoom;
+                initialPinchDistance = currentDistance;
+                initialZoomLevel = zoomLevel;
+                applyTransform();
+            }
+        }, { passive: false });
+
+        viewport.addEventListener('touchend', () => { 
+            isDragging = false; 
+            initialPinchDistance = null; 
+            if(draggedNodeId) { renderLines(); draggedNodeId = null; }
+        });
+
+        function handleAction(nodeId, actionType) {
+            if(!actionType) return; 
+            
+            if(actionType === 'HAPUS') {
+                if(confirm("Apakah Anda yakin ingin menghapus kartu ini?")) {
+                    nodes = nodes.filter(n => n.id !== nodeId);
+                    edges = edges.filter(e => e.parent !== nodeId && e.child !== nodeId);
+                    updateDropdownNode(); 
+                    renderTree();
+                }
+                return;
+            }
+
+            const newId = generateId(); const r = nodes.find(n => n.id === nodeId);
+            let nX = r.customX || 0; let nY = r.customY || 0;
+            // Logika kordinat kartu baru
+            if (actionType.includes('ANAK')) nY += 250; 
+            else if (actionType.includes('ORTU') || actionType === 'MERTUA') nY -= 250; 
+            else nX += 250; 
+
+            const b = { id: newId, customX: nX, customY: nY };
+            
+            // Logika pembuatan relasi
+            if (actionType === 'PASANGAN') { nodes.push({ ...b, name: "Pasangan Baru", gender: "P" }); edges.push({ parent: nodeId, child: newId, type: actionType }); } 
+            else if (actionType === 'SAHABAT') { nodes.push({ ...b, name: "Sahabat", gender: "L" }); edges.push({ parent: nodeId, child: newId, type: actionType }); } 
+            else if (actionType === 'ORTU_KANDUNG' || actionType === 'ORTU_ANGKAT' || actionType === 'MERTUA') { nodes.push({ ...b, name: "Ortu", gender: "L" }); edges.push({ parent: newId, child: nodeId, type: actionType }); } 
+            else if (actionType === 'ANAK_KANDUNG' || actionType === 'ANAK_ANGKAT') { nodes.push({ ...b, name: "Anak", gender: "L" }); edges.push({ parent: nodeId, child: newId, type: actionType }); } 
+            else if (actionType === 'KAKAK') { 
+                nodes.push({ ...b, name: "Saudara", gender: "L" }); 
+                let ps = edges.filter(e => e.child === nodeId && e.type==='ANAK_KANDUNG'); 
+                if(ps.length===0) { 
+                    let pId = generateId(); nodes.push({ id: pId, name: "Ortu", gender: "L", customX: nX, customY: nY - 250 }); 
+                    edges.push({ parent: pId, child: nodeId, type: 'ANAK_KANDUNG' }); ps = [{ parent: pId }]; 
+                } 
+                ps.forEach(pe => edges.push({ parent: pe.parent, child: newId, type: 'ANAK_KANDUNG' })); 
+            }
+            updateDropdownNode(); renderTree(); 
+        }
+        
+		// ==========================================
+        // FITUR DRAG DOT UNTUK MEMBUAT GARIS RELASI
+        // ==========================================
+        let isConnecting = false, connectStartId = null, connectStartCoords = null, tempEdgeLine = null;
+
+        //window.addEventListener('mousedown', startConnect);
+        window.addEventListener('mousemove', moveConnect);
+        window.addEventListener('mouseup', endConnect);
+        //window.addEventListener('touchstart', startConnect, {passive: false});
+        window.addEventListener('touchmove', moveConnect, {passive: false});
+        window.addEventListener('touchend', endConnect);
+
+        function getDotCoords(el) {
+            const c = document.getElementById('treeUI');
+            let top = 0, left = 0, w = el.offsetWidth, h = el.offsetHeight;
+            let cur = el;
+            while (cur && cur !== c) { top += cur.offsetTop; left += cur.offsetLeft; cur = cur.offsetParent; }
+            return { cx: left + (w/2), cy: top + (h/2) };
+        }
+
+        function startConnect(e) {
+            const editToggle = document.getElementById('editModeToggle');
+            if(editToggle && !editToggle.checked) return;
+
+            // [PENTING] Cegah event diteruskan ke kartu atau viewport agar tidak bergeser
+            e.stopPropagation();
+            if(e.type === 'touchstart') e.preventDefault();
+
+            let target = e.currentTarget || e.target;
+            if (target && target.classList.contains('conn-dot')) {
+                isConnecting = true;
+                connectStartId = target.getAttribute('data-id');
+                connectStartCoords = getDotCoords(target);
+                
+                const svg = document.getElementById('treeLines');
+                tempEdgeLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                tempEdgeLine.setAttribute('class', 'line-dashed');
+                tempEdgeLine.style.stroke = '#007bff';
+                tempEdgeLine.style.strokeWidth = '4';
+                tempEdgeLine.style.fill = 'none'; // Pastikan tidak ada fill warna
+                svg.appendChild(tempEdgeLine);
+            }
+        }
+
+        function moveConnect(e) {
+            if (!isConnecting || !tempEdgeLine) return;
+            
+            const v = viewport.getBoundingClientRect();
+            let clientX = e.clientX, clientY = e.clientY;
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX; clientY = e.touches[0].clientY;
+                e.preventDefault(); // cegah layar ikut ke-scroll saat seret di hp
+            }
+            
+            const targetX = (clientX - v.left - panX) / zoomLevel;
+            const targetY = (clientY - v.top - panY) / zoomLevel;
+            
+            tempEdgeLine.setAttribute('d', `M ${connectStartCoords.cx} ${connectStartCoords.cy} L ${targetX} ${targetY}`);
+        }
+
+        function endConnect(e) {
+            if (!isConnecting) return;
+            isConnecting = false;
+            if (tempEdgeLine) { tempEdgeLine.remove(); tempEdgeLine = null; }
+            
+            let clientX = e.clientX, clientY = e.clientY;
+            if (e.changedTouches && e.changedTouches.length > 0) {
+                clientX = e.changedTouches[0].clientX; clientY = e.changedTouches[0].clientY;
+            }
+            let dropTarget = document.elementFromPoint(clientX, clientY);
+            
+            if (dropTarget && dropTarget.classList.contains('conn-dot')) {
+                const targetId = dropTarget.getAttribute('data-id');
+                if (targetId && targetId !== connectStartId) {
+                    
+                    const relChoice = prompt(
+                        "Ketik nomor untuk jenis relasi:\n" +
+                        "1 = Ortu Kandung (A ortu dari B)\n" +
+                        "2 = Anak Kandung (A anak dari B)\n" +
+                        "3 = Pasangan (Garis Samping)\n" +
+                        "4 = Anak Angkat\n" +
+                        "5 = Sahabat", "1"
+                    );
+                    
+                    if (relChoice) {
+                        let typeStr = 'ANAK_KANDUNG';
+                        let parentId = connectStartId, childId = targetId; // Default
+                        
+                        if (relChoice === "1") { typeStr = "ANAK_KANDUNG"; } 
+                        else if (relChoice === "2") { typeStr = "ANAK_KANDUNG"; parentId = targetId; childId = connectStartId; }
+                        else if (relChoice === "3") { typeStr = "PASANGAN"; }
+                        else if (relChoice === "4") { typeStr = "ANAK_ANGKAT"; }
+                        else if (relChoice === "5") { typeStr = "SAHABAT"; }
+                        
+                        // Cek apakah relasi sudah ada agar tidak ganda
+                        const isExist = edges.some(ed => 
+                            (ed.parent === parentId && ed.child === childId && ed.type === typeStr) || 
+                            (ed.parent === childId && ed.child === parentId && ['PASANGAN','SAHABAT'].includes(typeStr))
+                        );
+                        
+                        if(!isExist) {
+                            edges.push({ parent: parentId, child: childId, type: typeStr });
+                            renderTree();
+                        } else {
+                            logToScreen("⚠️ Garis relasi tersebut sudah ada.");
+                        }
+                    }
+                }
+            }
+        }
+		
+        function generateDefaultTree() { nodes = []; edges = []; const aId = generateId(); nodes.push({ id: aId, name: "Ayah", gender: "L", customX: 0, customY: 0 }); const iId = generateId(); nodes.push({ id: iId, name: "Ibu", gender: "P", customX: 200, customY: 0 }); const sId = generateId(); nodes.push({ id: sId, name: "Saya", gender: "L", customX: 100, customY: 250 }); edges.push({ parent: aId, child: iId, type: 'PASANGAN' }, { parent: aId, child: sId, type: 'ANAK_KANDUNG' }, { parent: iId, child: sId, type: 'ANAK_KANDUNG' }); updateDropdownNode(); renderTree(); }
+
+        function renderLines() {
+            const svg = document.getElementById('treeLines'); const c = document.getElementById('treeUI'); if(!svg || !c) return; svg.innerHTML = ''; 
+            function getCoords(el) { let top=0, left=0; let w=el.offsetWidth, h=el.offsetHeight; let cur=el; while(cur && cur!==c) { top+=cur.offsetTop; left+=cur.offsetLeft; cur=cur.offsetParent; } return { top, bottom: top+h, left, right: left+w, cx: left+(w/2), cy: top+(h/2) }; }
+            edges.forEach(e => {
+                const elA = document.getElementById(`card_${e.parent}`); const elB = document.getElementById(`card_${e.child}`); if(!elA || !elB) return;
+                const cA = getCoords(elA), cB = getCoords(elB); const type = e.type || 'ANAK_KANDUNG';
+                
+                let p = ''; 
+                // Tentukan jika garis perlu putus-putus
+                const lineClass = ['ANAK_ANGKAT', 'ORTU_ANGKAT', 'SAHABAT'].includes(type) ? 'line-dashed' : 'line-solid';
+                
+                if (['ANAK_KANDUNG', 'ANAK_ANGKAT', 'ORTU_ANGKAT', 'MERTUA'].includes(type)) { 
+                    const pA = (cA.bottom <= cB.top); const top = pA?cA:cB, bot = pA?cB:cA; const midY = (top.bottom + bot.top)/2; 
+                    p = `M ${top.cx} ${top.bottom} C ${top.cx} ${midY}, ${bot.cx} ${midY}, ${bot.cx} ${bot.top}`; 
+                } 
+                else if (['PASANGAN', 'SAHABAT'].includes(type)) { 
+                    const aL = (cA.cx < cB.cx); const L = aL?cA:cB, R = aL?cB:cA; 
+                    const gapX = R.left - L.right;
+                    const distY = Math.abs(L.cy - R.cy);
+
+                    // Jika posisinya bersebelahan dekat, gunakan garis lurus biasa
+                    if (gapX > 0 && gapX <= 80 && distY <= 30) {
+                        p = `M ${L.right} ${L.cy} L ${R.left} ${R.cy}`; 
+                    } else {
+                        // Jika posisinya melompati kartu lain, buat kurva parabola (Quadratic) melambung ke atas.
+                        // Semakin jauh jaraknya, semakin tinggi lambungannya (bowHeight).
+                        const distX = Math.abs(R.cx - L.cx);
+                        const midX = (L.right + R.left) / 2;
+                        const bowHeight = 40 + (distX * 0.15); // Ketinggian dinamis mencegah tumpang tindih
+                        const midY = Math.min(L.cy, R.cy) - bowHeight;
+
+                        p = `M ${L.right} ${L.cy} Q ${midX} ${midY}, ${R.left} ${R.cy}`;
+                    }
+                }
+                
+                if(p) { 
+                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); 
+                    path.setAttribute('d', p); 
+                    path.setAttribute('class', lineClass); 
+                    if (lineClass === 'line-dashed') path.style.stroke = '#888'; // Membedakan warna garis
+                    svg.appendChild(path); 
+                }
+            });
+        }
+    </script>
+</body>
+</html>
