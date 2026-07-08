@@ -255,7 +255,8 @@
             logToScreen(isSearch ? "🔍 Menganalisa wajah dari foto..." : "🧠 Mendaftarkan wajah...");
             const img = new Image(); img.src = URL.createObjectURL(file);
             img.onload = async () => {
-                const detections = await faceapi.detectAllFaces(img).withFaceLandmarks().withFaceDescriptors();
+                // [PATCH] Menambahkan minConfidence 0.3 agar lebih mudah mendeteksi wajah di foto
+                const detections = await faceapi.detectAllFaces(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 })).withFaceLandmarks().withFaceDescriptors();
                 if (detections.length === 0) return logToScreen("❌ Wajah tidak terdeteksi.");
                 
                 if (isSearch) {
@@ -265,7 +266,6 @@
                     try {
                         const res = await (await fetch(`${API_URL}/search-batch`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vectors: batchVectors }) })).json();
                         
-                        // [PATCH 3] Show Result Image & Overlay
                         const searchArea = document.getElementById('searchResultDisplay');
                         const searchImg = document.getElementById('searchResultImg');
                         const overlays = document.getElementById('searchResultOverlays');
@@ -274,7 +274,6 @@
                         searchImg.src = img.src;
                         overlays.innerHTML = '';
 
-                        // Give UI time to render img tag full width to get accurate offsetWidth
                         setTimeout(() => {
                             const scale = searchImg.offsetWidth / img.width;
 
@@ -288,7 +287,6 @@
                                     logToScreen(`✅ Dikenali: ${nameText}`); 
                                     searchTree(nameText);
                                     
-                                    // Identify Call Name
                                     const node = nodes.find(n => n.name === nameText);
                                     if(node) {
                                         const sId = document.getElementById('setUserAs').value;
@@ -303,7 +301,6 @@
                                     logToScreen(`❌ Asing/Low Confidence`);
                                 }
 
-                                // Border Outline
                                 const borderBox = document.createElement('div');
                                 borderBox.style.position = 'absolute';
                                 borderBox.style.border = '2px solid #0dcaf0';
@@ -313,11 +310,10 @@
                                 borderBox.style.width = (box.width * scale) + 'px';
                                 borderBox.style.height = (box.height * scale) + 'px';
 
-                                // Text Label underneath face
                                 const textBox = document.createElement('div');
                                 textBox.style.position = 'absolute';
                                 textBox.style.left = (box.x * scale) + 'px';
-                                textBox.style.top = ((box.y + box.height) * scale + 6) + 'px'; // Just below box
+                                textBox.style.top = ((box.y + box.height) * scale + 6) + 'px'; 
                                 textBox.style.width = (box.width * scale) + 'px';
                                 textBox.style.textAlign = 'center';
                                 textBox.style.color = '#fff';
@@ -335,19 +331,16 @@
                                 overlays.appendChild(borderBox);
                                 overlays.appendChild(textBox);
                             });
-                            // Scroll to results cleanly
                             searchArea.scrollIntoView({ behavior: 'smooth', block: 'end' });
                         }, 150);
 
                     } catch(e) { logToScreen("❌ Error fetch server."); }
                 } else {
                     if (detections.length === 1) {
-                        // Jika hanya ada 1 wajah, langsung crop dan upload
                         const box = detections[0].detection.box; const canvas = document.createElement('canvas'); canvas.width = box.width; canvas.height = box.height;
                         canvas.getContext('2d').drawImage(img, box.x, box.y, box.width, box.height, 0, 0, box.width, box.height);
                         uploadVectorToBackend(canvas.toDataURL('image/jpeg', 0.9), Array.from(detections[0].descriptor), relativeId);
                     } else if (detections.length > 1) {
-                        // Jika ada banyak wajah, tampilkan modal pemilihan
                         logToScreen("⚠️ Ditemukan banyak wajah. Mohon pilih satu.");
                         document.getElementById('multiFaceModal').style.display = 'flex';
                         const container = document.getElementById('faceOptions');
@@ -589,9 +582,80 @@
             const relations = runBFS(sId); if(relations[tId]) { const tNode = nodes.find(n => n.id === tId); res.innerText = getCallingName(relations[tId].types, relations[tId].nodes, tNode.gender, sId, tId) || "Tidak Diketahui"; } else res.innerText = "Tidak ada";
         }
         function getCallingName(pathTypes, pathNodes, gender, focalId, targetId) {
-            const m = { "S": gender === 'L' ? "Suami" : "Istri", "U": gender === 'L' ? "Ayah" : "Ibu", "S-U": gender === 'L' ? "Bp Mertua" : "Ibu Mertua", "U-U": gender === 'L' ? "Kakek" : "Nenek", "D": "Anak", "D-D": "Cucu", "U-D-D": "Keponakan", "D-S": "Menantu" };
+            const getNode = (id) => nodes.find(n => n.id === id) || {};
+            const g = gender;
+
+            // Mapping Dasar
+            const m = { 
+                "S": g === 'L' ? "Suami" : "Istri", 
+                "U": g === 'L' ? "Ayah" : "Ibu", 
+                "U-U": g === 'L' ? "Kakek" : "Nenek", 
+                "U-U-U": g === 'L' ? "Kakek Buyut" : "Nenek Buyut",
+                "U-U-U-U": g === 'L' ? "Kakek Canggah" : "Nenek Canggah",
+                "D": "Anak", 
+                "D-D": "Cucu", 
+                "D-D-D": "Buyut",
+                "D-D-D-D": "Canggah",
+                "S-U": g === 'L' ? "Bapak Mertua" : "Ibu Mertua", 
+                "D-S": "Menantu", 
+                "U-D-D": "Keponakan", 
+                "U-U-U-D": g === 'L' ? "Kakek" : "Nenek" // Kakak/Adik dari Kakek/Nenek
+            };
             if(m[pathTypes]) return m[pathTypes];
-            if (pathTypes === "U-D") { const tb = (nodes.find(n=>n.id===targetId)||{}).birth_order||0; const fb = (nodes.find(n=>n.id===focalId)||{}).birth_order||0; if (tb>0 && fb>0) { if (tb<fb) return gender==='L'?"Kakak (M)":"Kakak (F)"; if (tb>fb) return "Adik"; } return gender==='L'?"Saudara (M)":"Saudara (F)"; }
+
+            // 1. SAUDARA KANDUNG (U-D)
+            if (pathTypes === "U-D") { 
+                const tb = getNode(targetId).birth_order || 0; 
+                const fb = getNode(focalId).birth_order || 0; 
+                if (tb === 0 || fb === 0) return ""; // Jika salah satu tidak ada 'anak ke-', kosongkan
+                if (tb < fb) return g === 'L' ? "Mas" : "Mbak"; // Target lebih tua
+                if (tb > fb) return "Dek"; // Target lebih muda
+            }
+
+            // 2. SAUDARA DARI ORANG TUA / PAMAN & BIBI (U-U-D)
+            if (pathTypes === "U-U-D") {
+                const parentId = pathNodes[1];
+                const pb = getNode(parentId).birth_order || 0;
+                const tb = getNode(targetId).birth_order || 0; // Target adalah si paman/bibi
+                if (pb === 0 || tb === 0) return "";
+                if (tb < pb) return g === 'L' ? "Pakde" : "Budhe";
+                if (tb > pb) return g === 'L' ? "Paklik" : "Bulik";
+            }
+
+            // 3. PASANGAN DARI PAMAN/BIBI (U-U-D-S)
+            if (pathTypes === "U-U-D-S") {
+                const parentId = pathNodes[1];
+                const uncleAuntId = pathNodes[3];
+                const pb = getNode(parentId).birth_order || 0;
+                const ub = getNode(uncleAuntId).birth_order || 0;
+                if (pb === 0 || ub === 0) return "";
+                if (ub < pb) return g === 'L' ? "Pakde" : "Budhe"; // Ikut panggilan pasangannya
+                if (ub > pb) return g === 'L' ? "Paklik" : "Bulik";
+            }
+
+            // 4. SEPUPU (U-U-D-D)
+            if (pathTypes === "U-U-D-D") {
+                const parentId = pathNodes[1];
+                const uncleAuntId = pathNodes[3];
+                const pb = getNode(parentId).birth_order || 0;
+                const ub = getNode(uncleAuntId).birth_order || 0;
+                if (pb === 0 || ub === 0) return "";
+                // Panggilan ke sepupu ditentukan dari umur ORANG TUANYA
+                if (ub < pb) return g === 'L' ? "Mas" : "Mbak"; // Anak pakde/budhe
+                if (ub > pb) return "Dek"; // Anak paklik/bulik
+            }
+
+            // 5. PASANGAN DARI SEPUPU (U-U-D-D-S)
+            if (pathTypes === "U-U-D-D-S") {
+                const parentId = pathNodes[1];
+                const uncleAuntId = pathNodes[3];
+                const pb = getNode(parentId).birth_order || 0;
+                const ub = getNode(uncleAuntId).birth_order || 0;
+                if (pb === 0 || ub === 0) return "";
+                if (ub < pb) return g === 'L' ? "Mas" : "Mbak"; 
+                if (ub > pb) return "Dek"; 
+            }
+
             return "";
         }
 
