@@ -70,6 +70,13 @@
         }
         body:not(.edit-mode) .calling-name { font-size: 14px !important; }
 
+        /* [NEW PATCH] Line hover and context menu styles */
+        body.edit-mode #treeLines path { pointer-events: auto; cursor: pointer; transition: stroke 0.2s, stroke-width 0.2s; }
+        body.edit-mode #treeLines path:hover { stroke: #dc3545 !important; stroke-width: 6; }
+        .custom-menu-item { padding: 10px 15px; cursor: pointer; color: #333; border-bottom: 1px solid #eee; transition: background 0.1s; }
+        .custom-menu-item:last-child { border-bottom: none; }
+        .custom-menu-item:hover { background: #f0f0f0; }
+
         /* Modals */
         #cameraSourceModal, #cropperModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; color: white; }
     </style>
@@ -78,6 +85,8 @@
 
     <div id="toaster-container"></div>
     
+    <div id="customContextMenu" style="display:none; position:fixed; background:white; border:1px solid #ccc; box-shadow:0 4px 8px rgba(0,0,0,0.2); z-index:10001; border-radius:6px; min-width:140px; font-size:13px; font-weight: bold; padding: 4px 0; overflow: hidden;"></div>
+
     <div id="cameraSourceModal">
         <h3>Pilih Sumber Foto</h3>
         <div style="display:flex; gap:10px; margin-top:15px;">
@@ -88,7 +97,7 @@
         <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none;" onchange="handleSearchImage(event)">
         <input type="file" id="galleryInput" accept="image/*" style="display:none;" onchange="handleSearchImage(event)">
     </div>
-	<div id="multiFaceModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:10000; flex-direction:column; align-items:center; justify-content:center; color:white;">
+    <div id="multiFaceModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:10000; flex-direction:column; align-items:center; justify-content:center; color:white;">
         <h3>📸 Ditemukan Banyak Wajah!</h3>
         <p>Sistem mendeteksi foto grup. Silakan klik wajah mana yang ingin diproses:</p>
         <div id="faceOptions" style="display:flex; flex-wrap:wrap; gap:15px; max-width:80%; justify-content:center; margin-bottom: 20px;"></div>
@@ -371,35 +380,35 @@
         }
 
         async function uploadVectorToBackend(base64Data, vector, relativeId) {
-			// [PATCH] Mengambil nama langsung dari data Node, bukan dari HTML yang sudah dihapus
-			let personName = "Unknown";
-			if (relativeId) {
-				const node = nodes.find(n => n.id === relativeId);
-				if (node) personName = node.name;
-			}
+            // [PATCH] Mengambil nama langsung dari data Node, bukan dari HTML yang sudah dihapus
+            let personName = "Unknown";
+            if (relativeId) {
+                const node = nodes.find(n => n.id === relativeId);
+                if (node) personName = node.name;
+            }
 
-			const payload = { 
-				user_id: document.getElementById('mockLogin').value, 
-				relative_id: relativeId, 
-				name: personName, 
-				photo_base64: base64Data, 
-				vector_128: vector 
-			};
+            const payload = { 
+                user_id: document.getElementById('mockLogin').value, 
+                relative_id: relativeId, 
+                name: personName, 
+                photo_base64: base64Data, 
+                vector_128: vector 
+            };
 
-			try {
-				const res = await (await fetch(`${API_URL}/upload`, { 
-					method: "POST", 
-					headers: { "Content-Type": "application/json" }, 
-					body: JSON.stringify(payload) 
-				})).json();
-				
-				if (relativeId || res.relative_id) saveThumbnailToDB(relativeId || res.relative_id, base64Data);
-				if(!relativeId) loadTreeFromBackend(); 
-				logToScreen(`✅ Wajah disimpan.`);
-			} catch(err) { 
-				logToScreen("❌ Gagal upload."); 
-			}
-		}
+            try {
+                const res = await (await fetch(`${API_URL}/upload`, { 
+                    method: "POST", 
+                    headers: { "Content-Type": "application/json" }, 
+                    body: JSON.stringify(payload) 
+                })).json();
+                
+                if (relativeId || res.relative_id) saveThumbnailToDB(relativeId || res.relative_id, base64Data);
+                if(!relativeId) loadTreeFromBackend(); 
+                logToScreen(`✅ Wajah disimpan.`);
+            } catch(err) { 
+                logToScreen("❌ Gagal upload."); 
+            }
+        }
 
         let db; const photoCache = {}; 
         const dbReq = indexedDB.open("KeluargakuDB", 1);
@@ -429,65 +438,65 @@
 
         function jalankanSetupD1() { if(confirm("Reset database?")) fetch(`${API_URL}/setup`).then(r=>r.json()).then(r=>{ logToScreen("Reset OK"); nodes=[]; edges=[]; renderTree();}); }
         
-		async function loadTreeFromBackend() {
-			try {
-				const response = await fetch(`${API_URL}/tree?user_id=${document.getElementById('mockLogin').value}`);
-				
-				// Check if response is ok
-				if (!response.ok) {
-					const errText = await response.text();
-					console.error("Backend Error Response:", errText);
-					return logToScreen(`⚠️ Server returned error: ${response.status}`);
-				}
+        async function loadTreeFromBackend() {
+            try {
+                const response = await fetch(`${API_URL}/tree?user_id=${document.getElementById('mockLogin').value}`);
+                
+                // Check if response is ok
+                if (!response.ok) {
+                    const errText = await response.text();
+                    console.error("Backend Error Response:", errText);
+                    return logToScreen(`⚠️ Server returned error: ${response.status}`);
+                }
 
-				const res = await response.json();
-				nodes = res.nodes || []; edges = res.edges || []; customCalls = {};
-				(res.custom_calls || []).forEach(c => { 
-					if(!customCalls[c.viewer_relative_id]) customCalls[c.viewer_relative_id] = {}; 
-					customCalls[c.viewer_relative_id][c.target_relative_id] = c.custom_call; 
-				});
-				updateDropdownNode(); 
-				if(res.my_relative_id) document.getElementById('setUserAs').value = res.my_relative_id;
-				renderTree(); 
-				setTimeout(() => onSetUserAsChange(), 150); 
-				syncMissingThumbnails();
-			} catch(e) { 
-				console.error("Fetch failed entirely:", e);
-				logToScreen("⚠️ Gagal load tree. Format data salah."); 
-			}
-		}
+                const res = await response.json();
+                nodes = res.nodes || []; edges = res.edges || []; customCalls = {};
+                (res.custom_calls || []).forEach(c => { 
+                    if(!customCalls[c.viewer_relative_id]) customCalls[c.viewer_relative_id] = {}; 
+                    customCalls[c.viewer_relative_id][c.target_relative_id] = c.custom_call; 
+                });
+                updateDropdownNode(); 
+                if(res.my_relative_id) document.getElementById('setUserAs').value = res.my_relative_id;
+                renderTree(); 
+                setTimeout(() => onSetUserAsChange(), 150); 
+                syncMissingThumbnails();
+            } catch(e) { 
+                console.error("Fetch failed entirely:", e);
+                logToScreen("⚠️ Gagal load tree. Format data salah."); 
+            }
+        }
 
         async function saveTreeToBackend() {
-			const flatCustomCalls = []; 
-			Object.keys(customCalls).forEach(v => { 
-				Object.keys(customCalls[v]).forEach(t => { 
-					flatCustomCalls.push({ viewer_id: v, target_id: t, custom_call: customCalls[v][t] }); 
-				}); 
-			}); 
-			try {
-				const response = await fetch(`${API_URL}/tree`, { 
-					method: "POST", 
-					headers: { "Content-Type": "application/json" }, 
-					body: JSON.stringify({ 
-						user_id: document.getElementById('mockLogin').value, 
-						my_relative_id: document.getElementById('setUserAs').value, 
-						nodes: nodes, 
-						edges: edges, 
-						custom_calls: flatCustomCalls 
-					}) 
-				});
+            const flatCustomCalls = []; 
+            Object.keys(customCalls).forEach(v => { 
+                Object.keys(customCalls[v]).forEach(t => { 
+                    flatCustomCalls.push({ viewer_id: v, target_id: t, custom_call: customCalls[v][t] }); 
+                }); 
+            }); 
+            try {
+                const response = await fetch(`${API_URL}/tree`, { 
+                    method: "POST", 
+                    headers: { "Content-Type": "application/json" }, 
+                    body: JSON.stringify({ 
+                        user_id: document.getElementById('mockLogin').value, 
+                        my_relative_id: document.getElementById('setUserAs').value, 
+                        nodes: nodes, 
+                        edges: edges, 
+                        custom_calls: flatCustomCalls 
+                    }) 
+                });
 
-				if (!response.ok) {
-					const errText = await response.text();
-					console.error("Backend Save Error:", errText);
-					return logToScreen(`❌ Gagal save: ${response.status}`);
-				}
+                if (!response.ok) {
+                    const errText = await response.text();
+                    console.error("Backend Save Error:", errText);
+                    return logToScreen(`❌ Gagal save: ${response.status}`);
+                }
 
-				logToScreen(`✅ Tree saved.`);
-			} catch(e) { 
-				logToScreen("❌ Gagal koneksi ke server."); 
-			}
-		}
+                logToScreen(`✅ Tree saved.`);
+            } catch(e) { 
+                logToScreen("❌ Gagal koneksi ke server."); 
+            }
+        }
 
         function generateId() { return "rel_" + Math.random().toString(36).substr(2, 9); }
         function updateNodeName(id, val) { const n = nodes.find(n => n.id === id); if(n) { n.name = val; updateDropdownNode(); } }
@@ -516,7 +525,7 @@
             return `
                 <div class="node-card ${node.gender === 'P' ? 'wanita' : 'pria'}" id="card_${id}" onmousedown="startCardDrag(event, '${id}')" ontouchstart="startCardDrag(event, '${id}')">
                     <div class="conn-dot dot-top" data-id="${id}" onmousedown="startConnect(event)" ontouchstart="startConnect(event)"></div>
-					<div class="conn-dot dot-bottom" data-id="${id}" onmousedown="startConnect(event)" ontouchstart="startConnect(event)"></div>
+                    <div class="conn-dot dot-bottom" data-id="${id}" onmousedown="startConnect(event)" ontouchstart="startConnect(event)"></div>
                     <img id="photo_${id}" class="node-thumbnail" src="${imgData || ''}" style="display: ${imgData ? 'block' : 'none'};">
                     <input type="file" id="file_${id}" style="display:none;" accept="image/*" onchange="if(this.files[0]) processPhotoFaceAPI(this.files[0], '${id}', false)">
                     <button class="btn-photo-upload" onclick="document.getElementById('file_${id}').click()">📷 Foto</button>
@@ -616,9 +625,9 @@
             const editToggle = document.getElementById('editModeToggle');
             if(editToggle && !editToggle.checked) return; 
             
-			// [PATCH] Tambahkan baris ini untuk mencegah drag kartu saat dot ditarik
+            // [PATCH] Tambahkan baris ini untuk mencegah drag kartu saat dot ditarik
             if (e.target && e.target.classList.contains('conn-dot')) return;
-			
+            
             draggedNodeId = id;
             const node = nodes.find(n => n.id === id);
             dragStartNodeX = node.customX || 0;
@@ -633,6 +642,87 @@
             }
             e.stopPropagation(); 
         }
+
+        // --- [NEW PATCH] Double Tap Logic & Context Menus Setup ---
+        let lastTapTime = 0;
+        function handleTouchDblTap(e, callback) {
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTapTime;
+            if (tapLength < 400 && tapLength > 0) {
+                e.preventDefault();
+                callback(e);
+                lastTapTime = 0; 
+            } else {
+                lastTapTime = currentTime;
+            }
+        }
+
+        let contextEdgeParams = null;
+        let contextCoords = null;
+
+        function showContextMenu(e, type, clientX, clientY) {
+            const menu = document.getElementById('customContextMenu');
+            const x = clientX || (e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX);
+            const y = clientY || (e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY);
+            
+            menu.style.left = x + 'px';
+            menu.style.top = y + 'px';
+            menu.style.display = 'block';
+            menu.innerHTML = '';
+
+            const v = viewport.getBoundingClientRect();
+            contextCoords = {
+                x: (x - v.left - panX) / zoomLevel,
+                y: (y - v.top - panY) / zoomLevel
+            };
+
+            if (type === 'DELETE_LINE') {
+                const item = document.createElement('div');
+                item.className = 'custom-menu-item';
+                item.innerHTML = '❌ Hapus Relasi';
+                item.onclick = () => {
+                    if (contextEdgeParams) {
+                        edges = edges.filter(ed => !(ed.parent === contextEdgeParams.parent && ed.child === contextEdgeParams.child && ed.type === contextEdgeParams.type));
+                        renderTree();
+                    }
+                };
+                menu.appendChild(item);
+            } else if (type === 'ADD_CARD') {
+                const item = document.createElement('div');
+                item.className = 'custom-menu-item';
+                item.innerHTML = '➕ Tambah Kartu Baru';
+                item.onclick = () => {
+                    const newId = generateId();
+                    nodes.push({ id: newId, name: "Orang Baru", gender: "L", customX: contextCoords.x, customY: contextCoords.y });
+                    updateDropdownNode();
+                    renderTree();
+                };
+                menu.appendChild(item);
+            }
+        }
+
+        window.addEventListener('click', (e) => {
+            const menu = document.getElementById('customContextMenu');
+            if (menu && menu.style.display === 'block') menu.style.display = 'none';
+        });
+        
+        viewport.addEventListener('contextmenu', (e) => {
+            if (document.body.classList.contains('edit-mode')) {
+                if (e.target.id === 'treeViewport' || e.target.id === 'treeUI' || e.target.id === 'treeLines' || e.target.tagName.toLowerCase() === 'svg') {
+                    e.preventDefault();
+                    showContextMenu(e, 'ADD_CARD');
+                }
+            }
+        });
+        viewport.addEventListener('dblclick', (e) => {
+            if (document.body.classList.contains('edit-mode')) {
+                if (e.target.id === 'treeViewport' || e.target.id === 'treeUI' || e.target.id === 'treeLines' || e.target.tagName.toLowerCase() === 'svg') {
+                    e.preventDefault();
+                    showContextMenu(e, 'ADD_CARD');
+                }
+            }
+        });
+        // --- End of Context Menu Logic Setup ---
 
         viewport.addEventListener('mousedown', (e) => { 
             if(draggedNodeId) return; 
@@ -672,6 +762,16 @@
 
         viewport.addEventListener('touchstart', (e) => {
             if(['INPUT', 'SELECT', 'OPTION', 'BUTTON', 'LABEL'].includes(e.target.tagName)) return;
+            
+            // [NEW PATCH] Double tap handling on empty space for Add Card
+            if (document.body.classList.contains('edit-mode') && e.touches.length === 1) {
+                if (e.target.id === 'treeViewport' || e.target.id === 'treeUI' || e.target.id === 'treeLines' || e.target.tagName.toLowerCase() === 'svg') {
+                    handleTouchDblTap(e, (ev) => {
+                        showContextMenu(ev, 'ADD_CARD', ev.touches[0].clientX, ev.touches[0].clientY);
+                    });
+                }
+            }
+
             if (!viewport.classList.contains('fullscreen-mode')) return;
             if (draggedNodeId) return; 
 
@@ -774,15 +874,13 @@
             updateDropdownNode(); renderTree(); 
         }
         
-		// ==========================================
+        // ==========================================
         // FITUR DRAG DOT UNTUK MEMBUAT GARIS RELASI
         // ==========================================
         let isConnecting = false, connectStartId = null, connectStartCoords = null, tempEdgeLine = null;
 
-        //window.addEventListener('mousedown', startConnect);
         window.addEventListener('mousemove', moveConnect);
         window.addEventListener('mouseup', endConnect);
-        //window.addEventListener('touchstart', startConnect, {passive: false});
         window.addEventListener('touchmove', moveConnect, {passive: false});
         window.addEventListener('touchend', endConnect);
 
@@ -884,7 +982,7 @@
                 }
             }
         }
-		
+        
         function generateDefaultTree() { nodes = []; edges = []; const aId = generateId(); nodes.push({ id: aId, name: "Ayah", gender: "L", customX: 0, customY: 0 }); const iId = generateId(); nodes.push({ id: iId, name: "Ibu", gender: "P", customX: 200, customY: 0 }); const sId = generateId(); nodes.push({ id: sId, name: "Saya", gender: "L", customX: 100, customY: 250 }); edges.push({ parent: aId, child: iId, type: 'PASANGAN' }, { parent: aId, child: sId, type: 'ANAK_KANDUNG' }, { parent: iId, child: sId, type: 'ANAK_KANDUNG' }); updateDropdownNode(); renderTree(); }
 
         function renderLines() {
@@ -927,6 +1025,34 @@
                     path.setAttribute('d', p); 
                     path.setAttribute('class', lineClass); 
                     if (lineClass === 'line-dashed') path.style.stroke = '#888'; // Membedakan warna garis
+                    
+                    // [NEW PATCH] Bind interactions for deleting lines
+                    path.oncontextmenu = (ev) => {
+                        if (document.body.classList.contains('edit-mode')) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            contextEdgeParams = e;
+                            showContextMenu(ev, 'DELETE_LINE');
+                        }
+                    };
+                    path.ondblclick = (ev) => {
+                        if (document.body.classList.contains('edit-mode')) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            contextEdgeParams = e;
+                            showContextMenu(ev, 'DELETE_LINE');
+                        }
+                    };
+                    path.addEventListener('touchstart', (ev) => {
+                        if (document.body.classList.contains('edit-mode')) {
+                            handleTouchDblTap(ev, (e2) => {
+                                e2.stopPropagation();
+                                contextEdgeParams = e;
+                                showContextMenu(e2, 'DELETE_LINE', ev.touches[0].clientX, ev.touches[0].clientY);
+                            });
+                        }
+                    }, { passive: false });
+                    
                     svg.appendChild(path); 
                 }
             });
