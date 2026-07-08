@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keluargaku AI - Face Gallery</title>
+    <style>
+        /* STYLING DASAR & UI */
+        body { font-family: system-ui; padding: 20px; background: #f0f2f5; color: #333; margin: 0; }
+        
+        .header { 
+            background: white; padding: 15px 20px; border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; 
+            position: sticky; top: 10px; z-index: 100;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        
+        select { 
+            padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; 
+            font-size: 14px; min-width: 250px; outline: none;
+        }
+
+        /* GRID GALLERY */
+        .gallery-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); 
+            gap: 20px; 
+        }
+        
+        .card { 
+            background: white; border-radius: 8px; padding: 10px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; 
+            position: relative; transition: transform 0.2s;
+        }
+        
+        .card:hover { transform: translateY(-2px); }
+        
+        .card img { 
+            width: 100%; height: 160px; object-fit: cover; 
+            border-radius: 4px; background: #e9ecef; 
+        }
+        
+        .card p { 
+            margin: 10px 0 5px 0; font-weight: 600; font-size: 14px; 
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
+        }
+
+        /* DELETE BUTTON */
+        .delete-btn { 
+            position: absolute; top: -8px; right: -8px; 
+            background: white; border: 2px solid #ff4d4f; border-radius: 50%; 
+            width: 26px; height: 26px; color: #ff4d4f; font-weight: bold; 
+            cursor: pointer; display: flex; align-items: center; justify-content: center; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2); font-size: 14px; transition: 0.2s;
+        }
+        
+        .delete-btn:hover { background: #ff4d4f; color: white; }
+
+        /* LOADER & SENTINEL */
+        .loading { text-align: center; padding: 20px; font-weight: bold; color: #666; }
+        #sentinel { height: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h2 style="margin: 0; font-size: 18px;">Registered Faces</h2>
+        <select id="userSelect" onchange="onUserChange()">
+            <option value="">-- Select Profile --</option>
+        </select>
+    </div>
+
+    <div class="gallery-grid" id="gallery"></div>
+    <div id="loading" class="loading" style="display:none;">Loading images...</div>
+    <div id="sentinel"></div>
+
+    <script>
+        const API_BASE = ''; // Isi dengan URL worker jika file ini tidak dihosting di domain yang sama (contoh: 'https://backend.workers.dev')
+        let currentOffset = 0;
+        const LIMIT = 20;
+        let isLoading = false;
+        let hasMore = true;
+        let observer;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadUsers();
+            setupInfiniteScroll();
+        });
+
+        // 1. Load profiles into dropdown
+        async function loadUsers() {
+            try {
+                const res = await fetch(`${API_BASE}/api/gallery/users`);
+                const data = await res.json();
+                if(data.status === 'success') {
+                    const select = document.getElementById('userSelect');
+                    data.users.forEach(u => {
+                        const opt = document.createElement('option');
+                        opt.value = u.user_id;
+                        opt.textContent = u.display_name || u.user_id;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch (e) {
+                console.error("Failed to load profiles", e);
+            }
+        }
+
+        // 2. Reset gallery when changing user
+        function onUserChange() {
+            document.getElementById('gallery').innerHTML = '';
+            currentOffset = 0;
+            hasMore = true;
+            loadFaces();
+        }
+
+        // 3. Fetch faces from API
+        async function loadFaces() {
+            const userId = document.getElementById('userSelect').value;
+            if (!userId || isLoading || !hasMore) return;
+
+            isLoading = true;
+            document.getElementById('loading').style.display = 'block';
+
+            try {
+                const res = await fetch(`${API_BASE}/api/gallery/faces?user_id=${userId}&offset=${currentOffset}&limit=${LIMIT}`);
+                const data = await res.json();
+
+                if(data.status === 'success') {
+                    // Stop fetching if results are less than requested limit
+                    if(data.faces.length < LIMIT) hasMore = false;
+                    currentOffset += data.faces.length;
+                    
+                    data.faces.forEach(face => renderCard(face));
+                }
+            } catch (e) {
+                console.error("Failed to load faces", e);
+            } finally {
+                isLoading = false;
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // 4. Render individual image card
+        function renderCard(face) {
+            const gallery = document.getElementById('gallery');
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.id = `card-${face.kv_key}`;
+
+            // Handle base64 formatting safety
+            const base64Data = face.photo_base64 || '';
+            const imgSrc = base64Data.startsWith('data:image') 
+                ? base64Data 
+                : `data:image/jpeg;base64,${base64Data}`;
+
+            card.innerHTML = `
+                <button class="delete-btn" title="Delete Face" onclick="deleteFace('${face.kv_key}')">✕</button>
+                <img src="${imgSrc}" alt="${face.default_name}" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' fill=\\'none\\' viewBox=\\'0 0 24 24\\' stroke=\\'%23ccc\\'><path stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\' stroke-width=\\'2\\' d=\\'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z\\'/></svg>'">
+                <p>${face.default_name}</p>
+            `;
+            
+            gallery.appendChild(card);
+        }
+
+        // 5. Delete face function
+        async function deleteFace(kvKey) {
+            if(!confirm('Delete this face? It will be removed from the database and KV storage.')) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/api/gallery/face`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kv_key: kvKey })
+                });
+                const data = await res.json();
+                
+                if(data.status === 'success') {
+                    // Instantly remove card from UI
+                    const card = document.getElementById(`card-${kvKey}`);
+                    if(card) card.remove();
+                } else {
+                    alert('Failed to delete: ' + data.message);
+                }
+            } catch (e) {
+                alert('Error processing deletion request.');
+                console.error(e);
+            }
+        }
+
+        // 6. Intersection Observer for Infinite Scrolling
+        function setupInfiniteScroll() {
+            const options = { root: null, rootMargin: '100px', threshold: 0.1 };
+            observer = new IntersectionObserver((entries) => {
+                // If sentinel hits the viewport, load more
+                if(entries[0].isIntersecting) {
+                    loadFaces();
+                }
+            }, options);
+            
+            observer.observe(document.getElementById('sentinel'));
+        }
+    </script>
+</body>
+</html>
