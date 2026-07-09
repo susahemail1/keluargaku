@@ -273,14 +273,16 @@
                         searchArea.style.display = 'block';
                         searchImg.src = img.src;
                         overlays.innerHTML = '';
-
+						
+						let nameText = "";
+						let callText = "";
+						
                         setTimeout(() => {
                             const scale = searchImg.offsetWidth / img.width;
 
                             res.results.forEach((r, index) => {
                                 const box = detections[index].detection.box;
-                                let nameText = "siapa?";
-                                let callText = "";
+
                                 
                                 if(r.status === "success" && r.score <= 0.55) { 
 									let nameText = r.person.default_name;
