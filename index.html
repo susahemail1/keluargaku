@@ -249,6 +249,38 @@
         }
 
         function openCameraModal() { document.getElementById('cameraSourceModal').style.display = 'flex'; }
+		// --- FITUR DRAG & DROP GLOBAL UNTUK FIND FOTO ---
+        window.addEventListener('dragover', (e) => {
+            const modal = document.getElementById('cameraSourceModal');
+            if (modal && modal.style.display === 'flex') {
+                e.preventDefault();
+                modal.style.background = "rgba(0, 123, 255, 0.9)"; // Efek visual saat file di atas window
+            }
+        });
+
+        window.addEventListener('dragleave', () => {
+            const modal = document.getElementById('cameraSourceModal');
+            if (modal && modal.style.display === 'flex') {
+                modal.style.background = "rgba(0,0,0,0.85)"; // Kembalikan warna semula jika batal
+            }
+        });
+
+        window.addEventListener('drop', (e) => {
+            const modal = document.getElementById('cameraSourceModal');
+            if (modal && modal.style.display === 'flex') {
+                e.preventDefault();
+                modal.style.background = "rgba(0,0,0,0.85)";
+                
+                const file = e.dataTransfer.files[0];
+                if (file && file.type.startsWith('image/')) {
+                    closeCameraModal();
+                    if (document.getElementById('treeViewport').classList.contains('fullscreen-mode')) toggleFullscreen(); 
+                    processPhotoFaceAPI(file, null, true);
+                } else {
+                    logToScreen("⚠️ File yang dijatuhkan harus berupa gambar.");
+                }
+            }
+        });
         function closeCameraModal() { document.getElementById('cameraSourceModal').style.display = 'none'; }
 
         function handleSearchImage(e) {
@@ -600,7 +632,12 @@
             
             // [PATCH 2] Added onmousedown, ontouchstart, ontouchmove stopPropagation to the dropdown select list
             return `
-                <div class="node-card ${node.gender === 'P' ? 'wanita' : 'pria'}" id="card_${id}" onmousedown="startCardDrag(event, '${id}')" ontouchstart="startCardDrag(event, '${id}')">
+                <div class="node-card ${node.gender === 'P' ? 'wanita' : 'pria'}" id="card_${id}" 
+                    onmousedown="startCardDrag(event, '${id}')" 
+                    ontouchstart="startCardDrag(event, '${id}')"
+                    ondragover="event.preventDefault(); if(document.getElementById('editModeToggle').checked) this.style.boxShadow='0 0 10px 3px #007bff';"
+                    ondragleave="this.style.boxShadow='';"
+                    ondrop="event.preventDefault(); this.style.boxShadow=''; if(!document.getElementById('editModeToggle').checked) return; const file = event.dataTransfer.files[0]; if(file && file.type.startsWith('image/')) { processPhotoFaceAPI(file, '${id}', false); }">
                     <div class="conn-dot dot-top" data-id="${id}" onmousedown="startConnect(event)" ontouchstart="startConnect(event)"></div>
                     <div class="conn-dot dot-bottom" data-id="${id}" onmousedown="startConnect(event)" ontouchstart="startConnect(event)"></div>
                     <img id="photo_${id}" class="node-thumbnail" src="${imgData || ''}" style="display: ${imgData ? 'block' : 'none'};">
