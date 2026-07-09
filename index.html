@@ -285,7 +285,7 @@
 
                                 
                                 if(r.status === "success" && r.score <= 0.55) { 
-									let nameText = r.person.default_name;
+									nameText = r.person.default_name;
 									logToScreen(`✅ Dikenali: ${nameText} (Dist: ${r.score.toFixed(2)})`); 
 									searchTree(nameText);
                                     
