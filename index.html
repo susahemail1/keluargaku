@@ -7,7 +7,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
         /* STYLING DASAR & UI */
-        body { font-family: system-ui; padding: 15px; background: #f0f2f5; color: #333; margin: 0; font-size: 16px; }
+        body { font-family: system-ui; padding: 15px; padding-top: 56px; background: #f0f2f5; color: #333; margin: 0; }
         .card { background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         button { padding: 10px 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 6px; margin-right: 8px; margin-bottom: 4px; font-size: 15px; transition: opacity 0.2s; white-space: nowrap; }
         button:hover { opacity: 0.8; }
@@ -15,7 +15,7 @@
         #logger { background: #1e1e1e; color: #00ff00; padding: 15px; font-family: monospace; height: 150px; overflow-y: auto; border-radius: 8px; font-size: 11px; line-height: 1.4; }
         
         /* TOASTER NOTIFICATION */
-        #toaster-container { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 10000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        #toaster-container { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10000; display: flex; flex-direction: column-reverse; gap: 10px; pointer-events: none; }
         .toast { pointer-events: auto; padding: 12px 20px; border-radius: 8px; box-shadow: 0 6px 16px rgba(0,0,0,0.2); min-width: 250px; text-align: center; font-weight: 500; font-size: 13px; animation: toastSlide 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         .toast.notification { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
         .toast.confirmation { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
@@ -53,9 +53,15 @@
         path.line-solid { stroke: #555; stroke-width: 3; fill: none; stroke-linecap: round; }
         path.line-dashed { stroke-width: 3; fill: none; stroke-dasharray: 8,8; stroke-linecap: round; }
         
-        #floatingSearch { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 100; background: rgba(255,255,255,0.9); padding: 8px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-		#floatingSearch input[type="text"] { width: 110px; flex: 1 1 110px; }
-        
+        #floatingSearch { position: fixed; top: 0; left: 0; right: 0; z-index: 10001; background: rgba(255,255,255,0.97); padding: 8px 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; align-items: center; box-sizing: border-box; }
+		#floatingSearch input[type="text"] { flex: 1 1 auto; min-width: 70px; }
+        @media (max-width: 768px) {
+            #floatingSearch { flex-wrap: wrap; }
+            #floatingSearch > label { order: 5; } 
+            #searchNode { order: 6; flex: 1; min-width: 100px; }
+            #btnFullscreen { order: 4; margin-left: auto; }
+        }
+
         /* VIEW & EDIT MODE DYNAMIC CLASSES */
         body:not(.edit-mode) .btn-photo-upload,
         body:not(.edit-mode) .action-dropdown,
@@ -83,7 +89,16 @@
     </style>
 </head>
 <body>
-
+    <div id="floatingSearch">
+        <button onclick="resetZoom()" style="background: #495057;">Def View</button>
+        <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: bold; background: #eee; padding: 4px 6px; border-radius: 4px; cursor: pointer; color: #333;">
+            <input type="checkbox" id="editModeToggle" onchange="toggleEditMode()" style="margin:0;"> Edit
+        </label>
+        <button onclick="openCameraModal()" style="background: #20c997; color: #fff;">📷 Find</button>
+        <button onclick="saveTreeToBackend()" style="background: #28a745;">Save</button>
+        <input type="text" id="searchNode" placeholder="Cari nama..." onkeyup="searchTree(this.value)">
+        <button id="btnFullscreen" onclick="toggleFullscreen()" style="background: #0dcaf0; color: #000; font-weight: bold;">Fullscr</button>
+    </div>
     <div id="toaster-container"></div>
     
     <div id="customContextMenu" style="display:none; position:fixed; background:white; border:1px solid #ccc; box-shadow:0 4px 8px rgba(0,0,0,0.2); z-index:10001; border-radius:6px; min-width:140px; font-size:13px; font-weight: bold; padding: 4px 0; overflow: hidden;"></div>
@@ -124,42 +139,33 @@
 
     <div class="card">
         <h3 style="font-size: 14px; margin-top:0;">3. Family Tree</h3>
-        <div style="display:flex; gap:5px; margin-bottom: 10px;">
-            <button onclick="generateDefaultTree()" style="background: #17a2b8;">Create New</button>
-            <button onclick="saveTreeToBackend()" style="background: #28a745;">Save</button>
-        </div>
         
         <div style="display:flex; flex-wrap: wrap; gap:8px; align-items:center; background: #eef2f7; padding: 8px; border-radius: 6px; font-size:12px;">
+            <button onclick="generateDefaultTree()" style="background: #17a2b8;">Create New</button>
+            <button onclick="exportTreeJSON()" style="background: #fd7e14;">Export</button>
+            <button onclick="importTreeJSON()" style="background: #20c997;">Import</button>
             <div style="display:flex; align-items:center;">
-                <strong>Set User:</strong>
                 <select id="setUserAs" onchange="onSetUserAsChange()"><option value="">-- Pusat --</option></select>
                 <button onclick="calculateRelations()" style="background: #ffc107; color: #000; font-weight: bold; margin-left:4px;">OK</button>
             </div>
             <div style="display:flex; align-items:center;">
-                <strong>Target:</strong>
                 <select id="checkRelationTarget"><option value="">-- Target --</option></select>
                 <button onclick="doCheckRelation()" style="background: #6f42c1; margin-left:4px;">Cek</button>
             </div>
             <strong id="relationResult" style="color:#d63384; font-size:13px;"></strong>
         </div>
         
-        <div id="treeViewport">
-            <div id="floatingSearch">
-                <input type="text" id="searchNode" placeholder="Cari nama..." onkeyup="searchTree(this.value)">
-                <button onclick="resetZoom()" style="background: #495057;">Default View</button>
-                <button onclick="openCameraModal()" style="background: #20c997; color: #fff;">Find</button>
-                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: bold; background: #eee; padding: 4px 6px; border-radius: 4px; cursor: pointer; color: #333;">
-                    <input type="checkbox" id="editModeToggle" onchange="toggleEditMode()" style="margin:0;"> Edit
-                </label>
-                <button id="btnFullscreen" onclick="toggleFullscreen()" style="background: #0dcaf0; color: #000; font-weight: bold;">Fullscreen</button>
-            </div>
+        <div id="treeViewport">      
             <div id="treeUI"><svg id="treeLines"></svg></div>
         </div>
         
         <div id="searchResultDisplay" style="display:none; margin-top: 15px; width: 100%;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px;">
                 <h4 style="margin: 0; font-size: 14px;">📷 Hasil Pencarian Wajah</h4>
-                <button onclick="document.getElementById('searchResultDisplay').style.display='none'" style="background:#dc3545;">Tutup</button>
+                <div>
+                    <button onclick="downloadFindResult()" style="background:#0dcaf0; color: #000; font-weight: bold;">Download</button>
+                    <button onclick="document.getElementById('searchResultDisplay').style.display='none'" style="background:#dc3545;">Tutup</button>
+                </div>
             </div>
             <div id="searchResultImgContainer" style="position:relative; width:100%; background: #000; border-radius: 8px; overflow: hidden;">
                 <img id="searchResultImg" style="width:100%; display:block;">
@@ -256,8 +262,8 @@
             logToScreen(isSearch ? "🔍 Menganalisa wajah dari foto..." : "🧠 Mendaftarkan wajah...");
             const img = new Image(); img.src = URL.createObjectURL(file);
             img.onload = async () => {
-                // [PATCH] Menambahkan minConfidence 0.2 agar lebih mudah mendeteksi wajah di foto
-                const detections = await faceapi.detectAllFaces(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.2 })).withFaceLandmarks().withFaceDescriptors();
+                // [PATCH] Menambahkan minConfidence 0.25 agar lebih mudah mendeteksi wajah di foto
+                const detections = await faceapi.detectAllFaces(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.25 })).withFaceLandmarks().withFaceDescriptors();
                 if (detections.length === 0) return logToScreen("❌ Wajah tidak terdeteksi.");
                 
                 if (isSearch) {
@@ -497,6 +503,78 @@
             }
         }
 
+
+		async function exportTreeJSON() {
+			const exportNodes = nodes.map(n => ({ ...n, photo_url: `${API_URL}/photo?relative_id=${n.id}` }));
+			const flatCustomCalls = [];
+			Object.keys(customCalls).forEach(v => {
+				Object.keys(customCalls[v]).forEach(t => {
+					flatCustomCalls.push({ viewer_id: v, target_id: t, custom_call: customCalls[v][t] });
+				});
+			});
+			const userId = document.getElementById('mockLogin').value;
+			const photosRes = await fetch(`${API_URL}/get-relative-photos?user_id=${userId}`);
+			const photosData = await photosRes.json();
+			const exportData = { nodes: exportNodes, edges: edges, custom_calls: flatCustomCalls, relative_photos: photosData.data || [] };
+			
+			const jsonStr = JSON.stringify(exportData, null, 2).replace(/</g, '&lt;');
+			const win = window.open('', '_blank');
+			win.document.write(`<html><head><title>Export Keluargaku JSON</title></head>
+				<body style="font-family: monospace; padding: 15px;">
+				<h3>Salin JSON di bawah ini</h3>
+				<textarea readonly style="width:100%; height:80vh; font-size:12px; box-sizing:border-box;">${jsonStr}</textarea>
+				</body></html>`);
+			win.document.close();
+		}
+
+		function importTreeJSON() {
+			const win = window.open('', '_blank');
+			win.document.write(`<html><head><title>Import Keluargaku JSON</title></head>
+				<body style="font-family: monospace; padding: 15px;">
+				<h3>Tempel (paste) JSON di bawah ini</h3>
+				<textarea id="importArea" style="width:100%; height:70vh; font-size:12px; box-sizing:border-box;"></textarea><br><br>
+				<button id="submitBtn" style="padding:10px 20px; font-size:14px;">Import ke Kanvas</button>
+				<p id="importMsg"></p>
+				</body></html>`);
+			win.document.close();
+			win.document.getElementById('submitBtn').onclick = async () => {
+				const msgEl = win.document.getElementById('importMsg');
+				try {
+					const data = JSON.parse(win.document.getElementById('importArea').value);
+					await applyImportedTree(data);
+					msgEl.style.color = 'green';
+					msgEl.innerText = "✅ Berhasil dimasukkan ke kanvas utama. Cek datanya, lalu klik Save di halaman utama untuk menyimpan permanen.";
+				} catch(e) {
+					msgEl.style.color = 'red';
+					msgEl.innerText = "❌ JSON tidak valid: " + e.message;
+				}
+			};
+		}
+
+		async function applyImportedTree(data) {
+			nodes = data.nodes || [];
+			edges = data.edges || [];
+			customCalls = {};
+			(data.custom_calls || []).forEach(c => {
+				if(!customCalls[c.viewer_id]) customCalls[c.viewer_id] = {};
+				customCalls[c.viewer_id][c.target_id] = c.custom_call;
+			});			
+			updateDropdownNode();
+			renderTree();
+			syncMissingThumbnails();
+			if (data.relative_photos && data.relative_photos.length > 0) {
+				const userId = document.getElementById('mockLogin').value;
+				await fetch(`${API_URL}/restore-relative-photos`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ user_id: userId, photos: data.relative_photos })
+				});
+				logToScreen("✅ Data JSON & Tautan Foto berhasil di-import (Tautan Foto langsung tersimpan ke server).");
+			} else {
+				logToScreen("✅ Data JSON berhasil di-import ke kanvas (belum tersimpan di server).");
+			}
+		}
+
         function generateId() { return "rel_" + Math.random().toString(36).substr(2, 9); }
         function updateNodeName(id, val) { const n = nodes.find(n => n.id === id); if(n) { n.name = val; updateDropdownNode(); } }
         function updateGender(id, val) { nodes.find(n => n.id === id).gender = val; calculateRelations(); renderTree(); }
@@ -505,7 +583,7 @@
         function updateDropdownNode() {
             const selUser = document.getElementById('setUserAs'); const selCheck = document.getElementById('checkRelationTarget'); const prevUser = selUser.value; const prevCheck = selCheck.value;
             selUser.innerHTML = '<option value="">-- Pusat --</option>'; selCheck.innerHTML = '<option value="">-- Target --</option>';
-            nodes.forEach(n => { const opt = `<option value="${n.id}">${n.name}</option>`; selUser.innerHTML += opt; selCheck.innerHTML += opt; });
+            [...nodes].sort((a, b) => a.name.localeCompare(b.name)).forEach(n => { const opt = `<option value="${n.id}">${n.name}</option>`; selUser.innerHTML += opt; selCheck.innerHTML += opt; });
             selUser.value = prevUser; selCheck.value = prevCheck;
         }
 
@@ -940,7 +1018,7 @@
             const b = { id: newId, customX: nX, customY: nY };
             
             // Logika pembuatan relasi
-            if (actionType === 'PASANGAN') { nodes.push({ ...b, name: "Pasangan Baru", gender: "P" }); edges.push({ parent: nodeId, child: newId, type: actionType }); } 
+            if (actionType === 'PASANGAN') { const targetGender = (r.gender === 'P') ? 'L' : 'P'; nodes.push({ ...b, name: "Pasangan Baru", gender: targetGender }); edges.push({ parent: nodeId, child: newId, type: actionType }); }
             else if (actionType === 'SAHABAT') { nodes.push({ ...b, name: "Sahabat", gender: "L" }); edges.push({ parent: nodeId, child: newId, type: actionType }); } 
             else if (actionType === 'ORTU_KANDUNG' || actionType === 'ORTU_ANGKAT' || actionType === 'MERTUA') { nodes.push({ ...b, name: "Ortu", gender: "L" }); edges.push({ parent: newId, child: nodeId, type: actionType }); } 
             else if (actionType === 'ANAK_KANDUNG' || actionType === 'ANAK_ANGKAT') { nodes.push({ ...b, name: "Anak", gender: "L" }); edges.push({ parent: nodeId, child: newId, type: actionType }); } 
@@ -1138,6 +1216,79 @@
                     svg.appendChild(path); 
                 }
             });
+        }
+		function downloadFindResult() {
+            const searchImg = document.getElementById('searchResultImg');
+            const overlays = document.getElementById('searchResultOverlays');
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = searchImg.naturalWidth;
+            canvas.height = searchImg.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            
+            // Gambar foto asli
+            ctx.drawImage(searchImg, 0, 0);
+            
+            const scaleX = searchImg.naturalWidth / searchImg.offsetWidth;
+            const scaleY = searchImg.naturalHeight / searchImg.offsetHeight;
+            
+            // Loop overlays (ambil children textBox saja)
+            Array.from(overlays.children).forEach(el => {
+                if (el.style.border) return; // Skip rounded rectangle line
+
+                const textHTML = el.innerHTML;
+                if (textHTML.includes("siapa?")) return; // Skip wajah yang tak dikenali
+
+                const rawLeft = parseFloat(el.style.left);
+                const rawTop = parseFloat(el.style.top);
+                const rawWidth = parseFloat(el.style.width);
+                
+                const boxX = rawLeft * scaleX;
+                const boxY = rawTop * scaleY;
+                const boxW = rawWidth * scaleX;
+
+                // Menghitung ukuran font dinamis proporsional terhadap resolusi asli foto
+                const dynamicFontSize = Math.round(14 * scaleX);
+                ctx.font = `bold ${dynamicFontSize}px system-ui`;
+                ctx.lineWidth = Math.max(2, Math.round(dynamicFontSize * 0.2));
+                ctx.strokeStyle = "black";
+
+                // Parsing text (Pisahkan Call name & Nama jika ada span)
+                let callName = "";
+                let mainName = textHTML;
+                const spanMatch = textHTML.match(/<span[^>]*>(.*?)<\/span><br>(.*)/);
+                if (spanMatch) {
+                    callName = spanMatch[1];
+                    mainName = spanMatch[2];
+                }
+
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.shadowColor = "black";
+                ctx.shadowBlur = 4;
+                ctx.shadowOffsetX = 2;
+                ctx.shadowOffsetY = 2;
+
+                const centerX = boxX + (boxW / 2);
+                let currentY = boxY;
+
+                if (callName) {
+                    ctx.strokeText(callName, centerX, currentY);
+                    ctx.fillStyle = "#0dcaf0";
+                    ctx.fillText(callName, centerX, currentY);
+                    currentY += Math.round(dynamicFontSize * 1.3);
+                }
+                
+                ctx.strokeText(mainName, centerX, currentY);
+                ctx.fillStyle = "#ffffff";
+                ctx.fillText(mainName, centerX, currentY);
+            });
+
+            // Eksekusi Download
+            const link = document.createElement('a');
+            link.download = `Pencarian_Keluargaku_${Date.now()}.jpg`;
+            link.href = canvas.toDataURL('image/jpeg', 0.85);
+            link.click();
         }
     </script>
 </body>
