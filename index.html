@@ -7,11 +7,11 @@
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
         /* STYLING DASAR & UI */
-        body { font-family: system-ui; padding: 15px; background: #f0f2f5; color: #333; margin: 0; }
+        body { font-family: system-ui; padding: 15px; background: #f0f2f5; color: #333; margin: 0; font-size: 16px; }
         .card { background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        button { padding: 6px 10px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; margin-right: 5px; font-size: 12px; transition: opacity 0.2s; white-space: nowrap; }
+        button { padding: 10px 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 6px; margin-right: 8px; margin-bottom: 4px; font-size: 15px; transition: opacity 0.2s; white-space: nowrap; }
         button:hover { opacity: 0.8; }
-        input[type="text"], select { padding: 6px; margin-right: 5px; border-radius: 4px; border: 1px solid #ccc; font-size: 12px; }
+        input[type="text"], select { padding: 8px 10px; margin-right: 5px; border-radius: 6px; border: 1px solid #ccc; font-size: 15px; }
         #logger { background: #1e1e1e; color: #00ff00; padding: 15px; font-family: monospace; height: 150px; overflow-y: auto; border-radius: 8px; font-size: 11px; line-height: 1.4; }
         
         /* TOASTER NOTIFICATION */
@@ -29,22 +29,23 @@
         
         .node-thumbnail { width: 156px; height: 156px; object-fit: cover; border-radius: 6px; border: 1px solid #ccc; margin-bottom: 5px; display: none; pointer-events: none; flex-shrink: 0; }
         
-        .btn-photo-upload { width: 100%; font-size: 10px; padding: 4px; margin-bottom: 5px; background: #e2e8f0; color: #333; border: 1px solid #cbd5e1; font-weight: bold; }
+        .btn-photo-upload { width: 100%; font-size: 13px; padding: 8px; margin-bottom: 6px; background: #e2e8f0; color: #333; border: 1px solid #cbd5e1; font-weight: bold; }
         
-        .conn-dot { position: absolute; width: 12px; height: 12px; background: #007bff; border-radius: 50%; opacity: 0; z-index: 10; cursor: crosshair; }
-        .node-card:hover .conn-dot { opacity: 0.4; }
-        .conn-dot.dot-top { top: -6px; left: 50%; margin-left: -6px; }
-        .conn-dot.dot-bottom { bottom: -6px; left: 50%; margin-left: -6px; }
-        .conn-dot.dot-left { top: 50%; left: -6px; margin-top: -6px; }
-        .conn-dot.dot-right { top: 50%; right: -6px; margin-top: -6px; }
-        .calling-name { width: 100%; box-sizing: border-box; color: #198754; font-weight: bold; font-size: 12px; text-align: center; margin-bottom: 5px; background:#f9f9f9; border:1px solid #ddd; padding: 2px; border-radius: 4px; }
-        .node-card select.action-dropdown { width: 100%; margin-top: 5px; padding: 4px; font-size: 11px; }
+        .conn-dot { position: absolute; width: 28px; height: 28px; background: radial-gradient(circle, #007bff 6px, transparent 7px); border-radius: 50%; opacity: 0; z-index: 10; cursor: crosshair; }
+		.node-card:hover .conn-dot { opacity: 0.5; }
+		body.edit-mode .conn-dot { opacity: 0.35; }
+		.conn-dot.dot-top { top: -14px; left: 50%; margin-left: -14px; }
+		.conn-dot.dot-bottom { bottom: -14px; left: 50%; margin-left: -14px; }
+		.conn-dot.dot-left { top: 50%; left: -14px; margin-top: -14px; }
+		.conn-dot.dot-right { top: 50%; right: -14px; margin-top: -14px; }
+        .calling-name { width: 100%; box-sizing: border-box; color: #198754; font-weight: bold; font-size: 14px; text-align: center; margin-bottom: 5px; background:#f9f9f9; border:1px solid #ddd; padding: 5px; border-radius: 4px; }
+        .node-card select.action-dropdown { width: 100%; margin-top: 5px; padding: 8px; font-size: 13px; }
 
         /* [PATCH 2] Force touch-action auto on inputs to prevent scroll block on dropdowns */
         .node-card input, .node-card select, .node-card button, .node-card label { touch-action: auto !important; }
 
         /* GRID & SVG LINES */
-        #treeViewport { width: 100%; height: 500px; overflow: hidden; background: #fafafa; border: 2px solid #ccc; cursor: grab; position: relative; margin-top: 10px; }
+        #treeViewport { width: 100%; height: 65dvh; min-height: 400px; overflow: hidden; background: #fafafa; border: 2px solid #ccc; cursor: grab; position: relative; margin-top: 10px; }
         #treeViewport.fullscreen-mode { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; margin: 0; border: none; border-radius: 0; touch-action: none; overscroll-behavior: none; }
         #treeUI { min-width: 100%; min-height: 100%; position: absolute; transform-origin: 0 0; }
         .node-cluster { position: absolute; padding: 10px; }
@@ -52,8 +53,8 @@
         path.line-solid { stroke: #555; stroke-width: 3; fill: none; stroke-linecap: round; }
         path.line-dashed { stroke-width: 3; fill: none; stroke-dasharray: 8,8; stroke-linecap: round; }
         
-        #floatingSearch { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 100; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; gap: 4px; flex-wrap: nowrap; overflow-x: auto; align-items: center; white-space: nowrap; }
-        #floatingSearch input[type="text"] { width: 80px; flex-shrink: 0; }
+        #floatingSearch { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 100; background: rgba(255,255,255,0.9); padding: 8px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+		#floatingSearch input[type="text"] { width: 110px; flex: 1 1 110px; }
         
         /* VIEW & EDIT MODE DYNAMIC CLASSES */
         body:not(.edit-mode) .btn-photo-upload,
@@ -68,7 +69,7 @@
         body:not(.edit-mode) .node-card input[type="text"] {
             font-size: 16px !important; pointer-events: none; background: transparent !important; border: none !important;
         }
-        body:not(.edit-mode) .calling-name { font-size: 14px !important; }
+        body:not(.edit-mode) .calling-name { font-size: 16px !important; }
 
         /* [NEW PATCH] Line hover and context menu styles */
         body.edit-mode #treeLines path { pointer-events: auto; cursor: pointer; transition: stroke 0.2s, stroke-width 0.2s; }
@@ -255,8 +256,8 @@
             logToScreen(isSearch ? "🔍 Menganalisa wajah dari foto..." : "🧠 Mendaftarkan wajah...");
             const img = new Image(); img.src = URL.createObjectURL(file);
             img.onload = async () => {
-                // [PATCH] Menambahkan minConfidence 0.3 agar lebih mudah mendeteksi wajah di foto
-                const detections = await faceapi.detectAllFaces(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 })).withFaceLandmarks().withFaceDescriptors();
+                // [PATCH] Menambahkan minConfidence 0.2 agar lebih mudah mendeteksi wajah di foto
+                const detections = await faceapi.detectAllFaces(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.2 })).withFaceLandmarks().withFaceDescriptors();
                 if (detections.length === 0) return logToScreen("❌ Wajah tidak terdeteksi.");
                 
                 if (isSearch) {
@@ -528,17 +529,17 @@
                     <input type="file" id="file_${id}" style="display:none;" accept="image/*" onchange="if(this.files[0]) processPhotoFaceAPI(this.files[0], '${id}', false)">
                     <button class="btn-photo-upload" onclick="document.getElementById('file_${id}').click()">📷 Foto</button>
                     
-                    <input type="text" value="${node.name}" onchange="updateNodeName('${id}', this.value)" style="width:100%; border:none; text-align:center; background:transparent; font-weight:bold; font-size:14px; margin-bottom:4px; box-sizing: border-box;">
+                    <input type="text" value="${node.name}" onchange="updateNodeName('${id}', this.value)" style="width:100%; border:none; text-align:center; background:transparent; font-weight:bold; font-size:16px; margin-bottom:6px; box-sizing: border-box;">
                     
                     <div style="width: 100%; text-align:center;"><input type="text" class="calling-name" onchange="updateCustomCall('${id}', this.value)" placeholder="Panggilan"></div>
                     
-                    <div class="edit-only" style="display:flex; justify-content:center; align-items:center; gap:10px; width:100%; margin-top:5px; font-size:11px;">
-                        <input type="number" min="1" placeholder="Anak Ke-" value="${node.birth_order || ''}" onchange="updateBirthOrder('${id}', this.value)" style="width:60px; text-align:center; font-size:11px; padding:2px;">
-                        <div style="display:flex; gap:4px;">
-                            <label><input type="radio" name="g_${id}" ${node.gender !== 'P' ? 'checked' : ''} onchange="updateGender('${id}', 'L')"> L</label>
-                            <label><input type="radio" name="g_${id}" ${node.gender === 'P' ? 'checked' : ''} onchange="updateGender('${id}', 'P')"> P</label>
-                        </div>
-                    </div>
+                    <div class="edit-only" style="display:flex; justify-content:center; align-items:center; gap:14px; width:100%; margin-top:8px; font-size:13px;">
+						<input type="number" min="1" placeholder="Anak Ke-" value="${node.birth_order || ''}" onchange="updateBirthOrder('${id}', this.value)" style="width:50px; text-align:center; font-size:13px; padding:6px;">
+						<div style="display:flex; gap:10px;">
+							<label style="display:flex; align-items:center; gap:4px;"><input type="radio" name="g_${id}" ${node.gender !== 'P' ? 'checked' : ''} onchange="updateGender('${id}', 'L')" style="width:18px; height:18px;"> L</label>
+							<label style="display:flex; align-items:center; gap:4px;"><input type="radio" name="g_${id}" ${node.gender === 'P' ? 'checked' : ''} onchange="updateGender('${id}', 'P')" style="width:18px; height:18px;"> P</label>
+						</div>
+					</div>
 
                     <select class="action-dropdown" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" ontouchmove="event.stopPropagation()" onchange="handleAction('${id}', this.value); this.value=''">
                         <option value="">[ + Tambah / Aksi ]</option>
