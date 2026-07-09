@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <title>Keluargaku AI - Face Gallery Manager</title>
     <style>
         /* BASE STYLE STYLING DASAR & UI */
@@ -180,6 +181,9 @@
             <select id="profileDropdown" onchange="onProfileSelectionChange()">
                 <option value="">-- Select Profile Tree --</option>
             </select>
+			<button onclick="startMigration()" style="background: #28a745; color: white; padding: 8px 12px; border: none; border-radius: 6px; cursor: pointer; margin-left: 10px; font-weight: bold;">
+			  🔄 Migrasi Euclidean
+			</button>
         </div>
     </div>
 
@@ -353,5 +357,79 @@
             scrollObserver.observe(document.getElementById("sentinel"));
         }
     </script>
+	<script>
+	let isFaceApiLoaded = false;
+
+	async function loadFaceApi() {
+		if (!isFaceApiLoaded) {
+			document.getElementById('loadingStatus').innerText = "Memuat model Face API untuk Migrasi... Harap tunggu.";
+			document.getElementById('loadingStatus').style.display = "block";
+			
+			// Memuat model dari CDN
+			const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+			await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+			await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+			await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+			
+			isFaceApiLoaded = true;
+			document.getElementById('loadingStatus').style.display = "none";
+		}
+	}
+
+	async function startMigration() {
+		const userId = document.getElementById("profileDropdown").value;
+		if (!userId) return alert("Pilih profile user terlebih dahulu di dropdown!");
+
+		const confirmMsg = "PENTING!\nApakah Anda sudah menjalankan perintah delete dan create index 'euclidean' di Terminal (Wrangler)?\n\nJika belum, batalkan proses ini karena akan error!";
+		if(!confirm(confirmMsg)) return;
+
+		await loadFaceApi();
+		
+		// Tarik SEMUA wajah untuk profil ini 
+		const res = await fetch(`${API_URL}/gallery/faces?user_id=${userId}&limit=1000&offset=0`);
+		const data = await res.json();
+		const faces = data.faces || [];
+		
+		if(faces.length === 0) return alert("Tidak ada foto tersimpan untuk dimigrasi pada profil ini.");
+
+		let successCount = 0;
+		const loader = document.getElementById('loadingStatus');
+		loader.style.display = "block";
+		
+		// Lakukan proses satu per satu agar RAM browser tidak penuh
+		for (let i = 0; i < faces.length; i++) {
+			const face = faces[i];
+			loader.innerText = `🔄 Migrasi foto ${i+1} dari ${faces.length}... (${face.default_name})`;
+			
+			// Convert Base64 KV kembali menjadi objek gambar
+			const img = new Image();
+			const base64Data = face.photo_base64.startsWith('data:image') ? face.photo_base64 : `data:image/jpeg;base64,${face.photo_base64}`;
+			img.src = base64Data;
+			
+			await new Promise(resolve => { img.onload = resolve; });
+
+			// Paksa AI membaca ulang wajah pada gambar tersebut
+			const detection = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+			
+			if (detection && face.vector_id) {
+				const vectorArray = Array.from(detection.descriptor);
+				
+				// Simpan vektor ulang dengan format Euclidean ke Vectorize
+				await fetch(`${API_URL}/migrate-vector`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ 
+						vector_id: face.vector_id, 
+						vector_128: vectorArray 
+					})
+				});
+				successCount++;
+			}
+		}
+		
+		loader.style.display = "none";
+		alert(`✅ Migrasi selesai!\n${successCount} dari ${faces.length} wajah berhasil diperbarui ke metrik Euclidean.`);
+	}
+	</script>	
 </body>
 </html>

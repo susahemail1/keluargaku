@@ -279,13 +279,13 @@
 
                             res.results.forEach((r, index) => {
                                 const box = detections[index].detection.box;
-                                let nameText = "Tidak Dikenal";
+                                let nameText = "siapa?";
                                 let callText = "";
                                 
-                                if(r.status === "success" && r.score >= 0.965) { // FILTER KETAT
-                                    nameText = r.person.default_name;
-                                    logToScreen(`✅ Dikenali: ${nameText} (Score: ${r.score.toFixed(2)})`); 
-                                    searchTree(nameText);
+                                if(r.status === "success" && r.score <= 0.55) { 
+									let nameText = r.person.default_name;
+									logToScreen(`✅ Dikenali: ${nameText} (Dist: ${r.score.toFixed(2)})`); 
+									searchTree(nameText);
                                     
                                     // Identify Call Name
                                     const node = nodes.find(n => n.name === nameText);
@@ -299,9 +299,9 @@
                                         }
                                     }
                                 } else {
-                                    nameText = "Tidak Dikenal";
+                                    nameText = "siapa?";
                                     callText = "";
-                                    logToScreen(`❌ Ragu/Asing (Score: ${r.score ? r.score.toFixed(2) : 'Rendah'}) - Abaikan Identifikasi`);
+                                    logToScreen(`❌ Ragu/Asing (Dist: ${r.score ? r.score.toFixed(2) : 'Tinggi'}) - Abaikan`);
                                 }
 
                                 const borderBox = document.createElement('div');
