@@ -144,6 +144,7 @@
             <button onclick="generateDefaultTree()" style="background: #17a2b8;">Create New</button>
             <button onclick="exportTreeJSON()" style="background: #fd7e14;">Export</button>
             <button onclick="importTreeJSON()" style="background: #20c997;">Import</button>
+            <button onclick="autoTidyTree()" style="background: #e83e8c; font-weight: bold;">✨ Tidy Up</button>
             <div style="display:flex; align-items:center;">
                 <select id="setUserAs" onchange="onSetUserAsChange()"><option value="">-- Pusat --</option></select>
                 <button onclick="calculateRelations()" style="background: #ffc107; color: #000; font-weight: bold; margin-left:4px;">OK</button>
@@ -702,91 +703,103 @@
             if(!sId || !tId) { res.innerText = "Pilih Pusat & Target"; return; } if(sId === tId) { res.innerText = "SAYA"; return; } if(customCalls[sId] && customCalls[sId][tId]) { res.innerText = customCalls[sId][tId]; return; }
             const relations = runBFS(sId); if(relations[tId]) { const tNode = nodes.find(n => n.id === tId); res.innerText = getCallingName(relations[tId].types, relations[tId].nodes, tNode.gender, sId, tId) || "Tidak Diketahui"; } else res.innerText = "Tidak ada";
         }
-        function getCallingName(pathTypes, pathNodes, gender, focalId, targetId) {
-            const getNode = (id) => nodes.find(n => n.id === id) || {};
+        
+		function getCallingName(pathTypes, pathNodes, gender, focalId, targetId) {
+            if (!pathTypes) return "";
+            const types = pathTypes.split('-');
             const g = gender;
 
-            // 1. Mapping spesifik untuk direct line / garis lurus (Atas / Bawah / Pasangan)
-            const direct = { 
-                "S": g === 'L' ? "Suami" : "Istri", 
-                "U": g === 'L' ? "Ayah" : "Ibu", 
-                "U-U": g === 'L' ? "Kakek" : "Nenek", 
-                "U-U-U": g === 'L' ? "Kakek Buyut" : "Nenek Buyut",
-                "U-U-U-U": g === 'L' ? "Kakek Canggah" : "Nenek Canggah",
-                "D": "Anak", 
-                "D-D": "Cucu", 
-                "D-D-D": "Buyut",
-                "D-D-D-D": "Canggah",
-                "S-U": g === 'L' ? "Bapak Mertua" : "Ibu Mertua", 
-                "D-S": "Menantu"
-            };
-            if (direct[pathTypes]) return direct[pathTypes];
-
-            // 2. Analisis Silsilah Collateral (Menyamping)
-            const types = pathTypes.split('-');
-            
-            // Deteksi jika target adalah pasangan dari kerabat darah (Istri Pakde, Suami Sepupu, dll)
-            const isSpouseOfRelative = types[types.length - 1] === 'S';
-            let effectiveTypes = isSpouseOfRelative ? types.slice(0, -1) : types;
-            let effectiveNodes = isSpouseOfRelative ? pathNodes.slice(0, -1) : pathNodes;
-            
-            // Hitung generasi ke Atas (U) dan ke Bawah (D)
-            let uCount = 0, dCount = 0, isValidBloodline = true;
-            for (let i = 0; i < effectiveTypes.length; i++) {
-                if (effectiveTypes[i] === 'U' && dCount === 0) uCount++;
-                else if (effectiveTypes[i] === 'D') dCount++;
-                else isValidBloodline = false; 
+            // 1. BYPASS KASUS SAHABAT
+            if (types.includes('SAHABAT')) {
+                return g === 'P' ? "Mbak" : "Mas";
             }
 
-            // Jika relasi terlalu kompleks (misal Ipar menyamping)
-            if (!isValidBloodline) {
-                if (pathTypes === "S-U-D") return g === 'L' ? "Kakak/Adik Ipar (L)" : "Kakak/Adik Ipar (P)";
-                return "";
-            }
+            // 2. HITUNG DELTA & LEVEL GENERASI
+            let currentLvl = 0;
+            let lvls = [0];
+            let hasU = false, hasD = false;
+            
+            types.forEach(t => {
+                if (t === 'U') { currentLvl += 1; hasU = true; }
+                if (t === 'D') { currentLvl -= 1; hasD = true; }
+                lvls.push(currentLvl);
+            });
+            let delta = currentLvl;
 
-            // Memproses relasi darah yang memiliki Common Ancestor (Paman, Sepupu, Keponakan, dll)
-            if (uCount > 0 && dCount > 0) {
-                // Temukan titik percabangan leluhur untuk membandingkan siapa yang garis keturunan "Lebih Tua"
-                const focalBranchId = effectiveNodes[uCount - 1];
-                const targetBranchId = effectiveNodes[uCount + 1];
-                const fb = getNode(focalBranchId).birth_order || 0;
-                const tb = getNode(targetBranchId).birth_order || 0;
+            // 3. TENTUKAN CABANG TUA/MUDA (isTargetOlderBranch) DARI COMMON ANCESTOR
+            let maxLvl = Math.max(...lvls);
+            let firstPeakIdx = lvls.indexOf(maxLvl);
+            let lastPeakIdx = lvls.lastIndexOf(maxLvl);
+            let isTargetOlderBranch = false;
+
+            if (firstPeakIdx > 0 && lastPeakIdx < lvls.length - 1) {
+                // Ada titik percabangan (Common Ancestor) - Cari node tepat di bawah puncak
+                let fBranchNode = pathNodes[firstPeakIdx - 1];
+                let tBranchNode = pathNodes[lastPeakIdx + 1];
                 
-                let isTargetOlderBranch = null;
-                if (fb > 0 && tb > 0 && fb !== tb) {
-                    isTargetOlderBranch = (tb < fb);
-                } else {
-                    return ""; // Syarat mutlak: urutan anak harus diisi & tidak boleh sama untuk membedakan Pakde vs Paklik
+                let fPeakNode = pathNodes[firstPeakIdx];
+                let tPeakNode = pathNodes[lastPeakIdx];
+                
+                // Cari edge dari puncak ke cabang masing-masing untuk cek Anak Angkat (relative_order)
+                let fEdge = edges.find(e => (e.parent === fPeakNode && e.child === fBranchNode) || (e.parent === fBranchNode && e.child === fPeakNode));
+                let tEdge = edges.find(e => (e.parent === tPeakNode && e.child === tBranchNode) || (e.parent === tBranchNode && e.child === tPeakNode));
+                
+                if (fEdge && fEdge.relative_order === 'KAKAK') isTargetOlderBranch = false;
+                else if (fEdge && fEdge.relative_order === 'ADIK') isTargetOlderBranch = true;
+                else if (tEdge && tEdge.relative_order === 'KAKAK') isTargetOlderBranch = true;
+                else if (tEdge && tEdge.relative_order === 'ADIK') isTargetOlderBranch = false;
+                else {
+                    // Fallback ke urutan saudara kandung biasa
+                    let fNodeData = nodes.find(n => n.id === fBranchNode) || {};
+                    let tNodeData = nodes.find(n => n.id === tBranchNode) || {};
+                    let fb = fNodeData.birth_order || 0;
+                    let tb = tNodeData.birth_order || 0;
+                    if (fb > 0 && tb > 0) {
+                        isTargetOlderBranch = (tb < fb);
+                    } else {
+                        isTargetOlderBranch = false;
+                    }
                 }
+            }
 
-                // Delta = Beda Jarak Generasi antara Saya dan Target
-                const delta = uCount - dCount; 
-
-                if (delta === 0) {
-                    // Generasi Selevel (Saudara / Sepupu / Sepupu Dua Kali, dll)
-                    return isTargetOlderBranch ? (g === 'L' ? "Mas" : "Mbak") : "Dek";
-                } 
-                else if (delta === 1) {
-                    // 1 Generasi di Atas (Saudara Orang Tua / Sepupu Orang Tua, dll)
-                    return isTargetOlderBranch ? (g === 'L' ? "Pakde" : "Budhe") : (g === 'L' ? "Paklik" : "Bulik");
+            // 4. PEMETAAN PANGGILAN BERDASARKAN DELTA GENERASI
+            if (delta === 0) {
+                if (!hasU && !hasD) {
+                    if (pathTypes === "S") return g === 'P' ? "Istri" : "Suami";
                 }
-                else if (delta === 2) {
-                    // 2 Generasi di Atas (Saudara/Sepupu Kakek Nenek)
-                    return g === 'L' ? "Kakek" : "Nenek";
+                return isTargetOlderBranch ? (g === 'P' ? "Mbak" : "Mas") : "Dek";
+            } 
+            else if (delta === 1) {
+                if (!hasD) { // Jika tidak ada garis turun sama sekali (Leluhur Lurus)
+                    if (pathTypes === "S-U") return g === 'P' ? "Ibu Mertua" : "Bapak Mertua";
+                    return g === 'P' ? "Ibu" : "Ayah";
                 }
-                else if (delta === 3) {
-                    return g === 'L' ? "Kakek Buyut" : "Nenek Buyut";
+                return isTargetOlderBranch ? (g === 'P' ? "Budhe" : "Pakde") : (g === 'P' ? "Bulik" : "Paklik");
+            }
+            else if (delta === 2) {
+                return g === 'P' ? "Nenek" : "Kakek";
+            }
+            else if (delta === 3) {
+                return g === 'P' ? "Nenek Buyut" : "Kakek Buyut";
+            }
+            else if (delta >= 4) {
+                return g === 'P' ? "Nenek Canggah" : "Kakek Canggah";
+            }
+            else if (delta === -1) {
+                if (!hasU) { // Jika tidak ada garis naik sama sekali (Keturunan Lurus)
+                    if (pathTypes === "D-S") return "Menantu";
+                    return "Anak";
                 }
-                else if (delta === 4) {
-                    return g === 'L' ? "Kakek Canggah" : "Nenek Canggah";
-                }
-                else if (delta === -1) {
-                    // 1 Generasi di Bawah (Anak Saudara / Anak Sepupu)
-                    return "Keponakan";
-                }
-                else if (delta === -2) return "Cucu";
-                else if (delta === -3) return "Buyut";
-                else if (delta === -4) return "Canggah";
+                return "Keponakan";
+            }
+            else if (delta === -2) {
+                return "Cucu";
+            }
+            else if (delta === -3) {
+                return "Buyut";
+            }
+            else if (delta <= -4) {
+                return "Canggah";
             }
 
             return "";
@@ -1074,7 +1087,7 @@
         // ==========================================
         // FITUR DRAG DOT UNTUK MEMBUAT GARIS RELASI
         // ==========================================
-        let isConnecting = false, connectStartId = null, connectStartCoords = null, tempEdgeLine = null;
+        let isConnecting = false, connectStartId = null, connectStartCoords = null, tempEdgeLine = null, connectStartDot = null;
 
         window.addEventListener('mousemove', moveConnect);
         window.addEventListener('mouseup', endConnect);
@@ -1093,7 +1106,6 @@
             const editToggle = document.getElementById('editModeToggle');
             if(editToggle && !editToggle.checked) return;
 
-            // [PENTING] Cegah event diteruskan ke kartu atau viewport agar tidak bergeser
             e.stopPropagation();
             if(e.type === 'touchstart') e.preventDefault();
 
@@ -1101,6 +1113,8 @@
             if (target && target.classList.contains('conn-dot')) {
                 isConnecting = true;
                 connectStartId = target.getAttribute('data-id');
+                // [NEW] Simpan posisi dot awal (top atau bottom)
+                connectStartDot = target.classList.contains('dot-top') ? 'top' : (target.classList.contains('dot-bottom') ? 'bottom' : null);
                 connectStartCoords = getDotCoords(target);
                 
                 const svg = document.getElementById('treeLines');
@@ -1108,7 +1122,7 @@
                 tempEdgeLine.setAttribute('class', 'line-dashed');
                 tempEdgeLine.style.stroke = '#007bff';
                 tempEdgeLine.style.strokeWidth = '4';
-                tempEdgeLine.style.fill = 'none'; // Pastikan tidak ada fill warna
+                tempEdgeLine.style.fill = 'none'; 
                 svg.appendChild(tempEdgeLine);
             }
         }
@@ -1144,36 +1158,95 @@
                 const targetId = dropTarget.getAttribute('data-id');
                 if (targetId && targetId !== connectStartId) {
                     
-                    const relChoice = prompt(
-                        "Ketik nomor untuk jenis relasi:\n" +
-                        "1 = Ortu Kandung (A ortu dari B)\n" +
-                        "2 = Anak Kandung (A anak dari B)\n" +
-                        "3 = Pasangan (Garis Samping)\n" +
-                        "4 = Anak Angkat\n" +
-                        "5 = Sahabat", "1"
-                    );
+                    const startNode = nodes.find(n => n.id === connectStartId) || { name: "A" };
+                    const targetNode = nodes.find(n => n.id === targetId) || { name: "B" };
+
+                    // [NEW] Deteksi arah spasial garis yang dibuat
+                    const endDot = dropTarget.classList.contains('dot-top') ? 'top' : (dropTarget.classList.contains('dot-bottom') ? 'bottom' : null);
+                    
+                    const isStartChild = (connectStartDot === 'top' && endDot === 'bottom');
+                    const isStartParent = (connectStartDot === 'bottom' && endDot === 'top');
+
+                    // Menyusun teks prompt secara dinamis berdasarkan filter
+                    let promptText = `Hubungkan ${startNode.name} ke ${targetNode.name}.\nKetik nomor untuk jenis relasi:\n`;
+                    if (!isStartChild)  promptText += `1 = Ortu Kandung (${startNode.name} ortu dari ${targetNode.name})\n`;
+                    if (!isStartParent) promptText += `2 = Anak Kandung (${startNode.name} anak dari ${targetNode.name})\n`;
+                    promptText += `3 = Pasangan (Garis Samping)\n`;
+                    if (!isStartParent) promptText += `4 = Anak Angkat (${startNode.name} anak angkat dari ${targetNode.name})\n`;
+                    if (!isStartChild)  promptText += `5 = Ortu Angkat (${startNode.name} ortu angkat dari ${targetNode.name})\n`;
+                    promptText += `6 = Sahabat`;
+
+                    const relChoice = prompt(promptText, isStartChild ? "2" : "1");
                     
                     if (relChoice) {
                         let typeStr = 'ANAK_KANDUNG';
-                        let parentId = connectStartId, childId = targetId; // Default
+                        let parentId = connectStartId, childId = targetId;
+                        let relativeOrder = null;
+                        let isValidChoice = false;
                         
-                        if (relChoice === "1") { typeStr = "ANAK_KANDUNG"; } 
-                        else if (relChoice === "2") { typeStr = "ANAK_KANDUNG"; parentId = targetId; childId = connectStartId; }
-                        else if (relChoice === "3") { typeStr = "PASANGAN"; }
-                        else if (relChoice === "4") { typeStr = "ANAK_ANGKAT"; }
-                        else if (relChoice === "5") { typeStr = "SAHABAT"; }
-                        
-                        // Cek apakah relasi sudah ada agar tidak ganda
-                        const isExist = edges.some(ed => 
-                            (ed.parent === parentId && ed.child === childId && ed.type === typeStr) || 
-                            (ed.parent === childId && ed.child === parentId && ['PASANGAN','SAHABAT'].includes(typeStr))
-                        );
-                        
-                        if(!isExist) {
-                            edges.push({ parent: parentId, child: childId, type: typeStr });
-                            renderTree();
+                        if (relChoice === "1" && !isStartChild) { 
+                            typeStr = "ANAK_KANDUNG"; 
+                            isValidChoice = true;
+                        } 
+                        else if (relChoice === "2" && !isStartParent) { 
+                            typeStr = "ANAK_KANDUNG"; 
+                            parentId = targetId; 
+                            childId = connectStartId; 
+                            isValidChoice = true;
+                        }
+                        else if (relChoice === "3") { 
+                            typeStr = "PASANGAN"; 
+                            isValidChoice = true;
+                        }
+                        else if (relChoice === "4" && !isStartParent) { 
+                            typeStr = "ANAK_ANGKAT"; 
+                            parentId = targetId; 
+                            childId = connectStartId;
+                            isValidChoice = true;
+                            
+                            const existingChildEdge = edges.find(ed => ed.parent === targetId && ['ANAK_KANDUNG', 'ANAK_ANGKAT'].includes(ed.type));
+                            let siblingName = "Anak Lain";
+                            if (existingChildEdge) {
+                                const siblingNode = nodes.find(n => n.id === existingChildEdge.child);
+                                if (siblingNode) siblingName = siblingNode.name;
+                            }
+                            const orderChoice = prompt(`Apakah ${startNode.name} berstatus sebagai:\n1 = Kakak ${siblingName}\n2 = Adik ${siblingName}`, "2");
+                            relativeOrder = (orderChoice === "1") ? "KAKAK" : "ADIK";
+                        }
+                        else if (relChoice === "5" && !isStartChild) { 
+                            typeStr = "ANAK_ANGKAT"; 
+                            parentId = connectStartId; 
+                            childId = targetId;
+                            isValidChoice = true;
+                            
+                            const existingChildEdge = edges.find(ed => ed.parent === connectStartId && ['ANAK_KANDUNG', 'ANAK_ANGKAT'].includes(ed.type));
+                            let siblingName = "Anak Lain";
+                            if (existingChildEdge) {
+                                const siblingNode = nodes.find(n => n.id === existingChildEdge.child);
+                                if (siblingNode) siblingName = siblingNode.name;
+                            }
+                            const orderChoice = prompt(`Apakah ${targetNode.name} berstatus sebagai:\n1 = Kakak ${siblingName}\n2 = Adik ${siblingName}`, "2");
+                            relativeOrder = (orderChoice === "1") ? "KAKAK" : "ADIK";
+                        }
+                        else if (relChoice === "6") { 
+                            typeStr = "SAHABAT"; 
+                            isValidChoice = true;
+                        }
+
+                        if (isValidChoice) {
+                            const isExist = edges.some(ed => 
+                                (ed.parent === parentId && ed.child === childId && ed.type === typeStr) || 
+                                (ed.parent === childId && ed.child === parentId && ['PASANGAN','SAHABAT'].includes(typeStr))
+                            );
+                            
+                            if(!isExist) {
+                                edges.push({ parent: parentId, child: childId, type: typeStr, relative_order: relativeOrder });
+                                renderTree();
+                            } else {
+                                logToScreen("⚠️ Garis relasi tersebut sudah ada.");
+                            }
                         } else {
-                            logToScreen("⚠️ Garis relasi tersebut sudah ada.");
+                            alert("⚠️ Pilihan angka tidak sesuai/tidak tersedia.");
                         }
                     }
                 }
@@ -1181,7 +1254,184 @@
         }
         
         function generateDefaultTree() { nodes = []; edges = []; const aId = generateId(); nodes.push({ id: aId, name: "Ayah", gender: "L", customX: 0, customY: 0 }); const iId = generateId(); nodes.push({ id: iId, name: "Ibu", gender: "P", customX: 200, customY: 0 }); const sId = generateId(); nodes.push({ id: sId, name: "Saya", gender: "L", customX: 100, customY: 250 }); edges.push({ parent: aId, child: iId, type: 'PASANGAN' }, { parent: aId, child: sId, type: 'ANAK_KANDUNG' }, { parent: iId, child: sId, type: 'ANAK_KANDUNG' }); updateDropdownNode(); renderTree(); }
+		
+		function autoTidyTree() {
+            if (nodes.length === 0) return;
+            logToScreen("⚙️ Merapikan pohon silsilah...");
 
+            // 1. BFS untuk menentukan Level/Generasi
+            let rootId = document.getElementById('setUserAs').value || nodes[0].id;
+            let levels = {}; let visited = new Set([rootId]); let queue = [{ id: rootId, level: 0 }];
+            levels[rootId] = 0;
+
+            const adj = {}; nodes.forEach(n => adj[n.id] = []);
+            edges.forEach(e => {
+                const type = e.type || 'ANAK_KANDUNG';
+                if (['ANAK_KANDUNG', 'ANAK_ANGKAT'].includes(type)) {
+                    adj[e.parent].push({ to: e.child, dLevel: 1 });
+                    adj[e.child].push({ to: e.parent, dLevel: -1 });
+                } else if (['ORTU_ANGKAT', 'MERTUA'].includes(type)) {
+                    adj[e.child].push({ to: e.parent, dLevel: -1 });
+                    adj[e.parent].push({ to: e.child, dLevel: 1 });
+                } else if (['PASANGAN', 'SAHABAT'].includes(type)) { 
+                    adj[e.parent].push({ to: e.child, dLevel: 0 });
+                    adj[e.child].push({ to: e.parent, dLevel: 0 });
+                }
+            });
+
+            while (queue.length > 0) {
+                let curr = queue.shift();
+                adj[curr.id].forEach(nbr => {
+                    if (!visited.has(nbr.to)) {
+                        visited.add(nbr.to); levels[nbr.to] = curr.level + nbr.dLevel;
+                        queue.push({ id: nbr.to, level: curr.level + nbr.dLevel });
+                    }
+                });
+            }
+            nodes.forEach(n => { if (levels[n.id] === undefined) levels[n.id] = 0; });
+
+            // 2. Pengelompokan Pasangan ke dalam "Blocks" [PATCH: Multi-Spouse Grouping]
+            let processedSpouses = new Set();
+            let blocks = [];
+            let nodeToBlock = {};
+
+            let sortedLevels = Object.values(levels).filter((v, i, a) => a.indexOf(v) === i).sort((a,b) => a - b);
+
+            sortedLevels.forEach(l => {
+                let levelNodes = nodes.filter(n => levels[n.id] === l);
+                levelNodes.sort((a, b) => (a.birth_order || 0) - (b.birth_order || 0) || a.name.localeCompare(b.name));
+                
+                levelNodes.forEach(n => {
+                    if(processedSpouses.has(n.id)) return;
+                    
+                    let cNodes = [];
+                    let spouseQueue = [n];
+                    processedSpouses.add(n.id);
+                    
+                    // Loop BFS mini: Kumpulkan SEMUA pasangan yang saling terkait dalam satu blok
+                    while(spouseQueue.length > 0) {
+                        let currSpouse = spouseQueue.shift();
+                        cNodes.push(currSpouse);
+                        
+                        edges.forEach(e => {
+                            if (e.type === 'PASANGAN') {
+                                let sId = (e.parent === currSpouse.id) ? e.child : (e.child === currSpouse.id ? e.parent : null);
+                                if(sId && !processedSpouses.has(sId) && levels[sId] === l) {
+                                    let sNode = nodes.find(x => x.id === sId);
+                                    if(sNode) { 
+                                        processedSpouses.add(sId);
+                                        spouseQueue.push(sNode);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    
+                    let bWidth = (cNodes.length * 180) + ((cNodes.length - 1) * 10);
+                    let block = { id: n.id, nodes: cNodes, level: l, width: bWidth, children: [], x: 0, footprint: bWidth };
+                    blocks.push(block);
+                    cNodes.forEach(cn => nodeToBlock[cn.id] = block);
+                });
+            });
+
+            // 3. Bangun Relasi Block (Parent -> Children)
+            edges.forEach(e => {
+                if (['ANAK_KANDUNG', 'ANAK_ANGKAT'].includes(e.type)) {
+                    let pBlock = nodeToBlock[e.parent];
+                    let cBlock = nodeToBlock[e.child];
+                    if (pBlock && cBlock && pBlock !== cBlock && pBlock.level < cBlock.level) {
+                        if (!pBlock.children.includes(cBlock)) pBlock.children.push(cBlock);
+                    }
+                }
+            });
+
+            // Sortir anak di dalam block berdasarkan birth_order
+            blocks.forEach(b => {
+                b.children.sort((c1, c2) => {
+                    let bo1 = c1.nodes[0].birth_order || 0;
+                    let bo2 = c2.nodes[0].birth_order || 0;
+                    return bo1 - bo2;
+                });
+            });
+
+            const gap = 90; // Jarak antar block horizontal
+
+            // 4. Bottom-Up Footprint Calculation
+            for (let i = sortedLevels.length - 1; i >= 0; i--) {
+                let levelBlocks = blocks.filter(b => b.level === sortedLevels[i]);
+                levelBlocks.forEach(b => {
+                    if (b.children.length > 0) {
+                        let childrenFootprint = b.children.reduce((sum, c) => sum + c.footprint, 0) + (gap * (b.children.length - 1));
+                        b.footprint = Math.max(b.width, childrenFootprint);
+                    } else {
+                        b.footprint = b.width;
+                    }
+                });
+            }
+
+            const shiftSubtree = (block, offset) => {
+                block.x += offset;
+                block.children.forEach(c => shiftSubtree(c, offset));
+            };
+
+            // 5. Top-Down Centered Distribution
+            let rootBlocks = blocks.filter(b => sortedLevels[0] === b.level);
+            let currentX = 0;
+            rootBlocks.forEach(b => {
+                b.x = currentX + (b.footprint / 2) - (b.width / 2);
+                currentX += b.footprint + gap;
+            });
+
+            sortedLevels.forEach(l => {
+                let levelBlocks = blocks.filter(b => b.level === l);
+                
+                levelBlocks.forEach(b => {
+                    if (b.children.length > 0) {
+                        let totalChildrenWidth = b.children.reduce((sum, c) => sum + c.footprint, 0) + (gap * (b.children.length - 1));
+                        let startX = (b.x + b.width / 2) - (totalChildrenWidth / 2);
+                        
+                        b.children.forEach(c => {
+                            c.x = startX + (c.footprint / 2) - (c.width / 2);
+                            startX += c.footprint + gap;
+                        });
+                    }
+                });
+
+                // 6. Sweep Anti-Tabrakan / Overlap
+                levelBlocks.sort((a, b) => a.x - b.x);
+                for (let i = 1; i < levelBlocks.length; i++) {
+                    let prev = levelBlocks[i - 1];
+                    let curr = levelBlocks[i];
+                    let requiredX = prev.x + prev.width + gap;
+                    if (curr.x < requiredX) {
+                        let offset = requiredX - curr.x;
+                        shiftSubtree(curr, offset);
+                    }
+                }
+            });
+
+            // Offset rata tengah ke node fokus
+            let rootBlock = nodeToBlock[rootId];
+            let offsetX = rootBlock ? (rootBlock.x + rootBlock.width / 2) : 0;
+
+            // 7. Terapkan koordinat [PATCH: Jarak Vertikal Presisi]
+            const cardHeight = 360; // Tinggi estimasi card di edit mode dengan foto
+            const verticalGap = cardHeight * 2; // Spasi kosong antar generasi
+            const levelHeight = cardHeight + verticalGap; 
+
+            blocks.forEach(b => {
+                let localX = b.x - offsetX;
+                b.nodes.forEach((n, idx) => {
+                    n.customX = localX + (idx * 190);
+                    n.customY = b.level * levelHeight;
+                });
+            });
+
+            renderTree();
+            setTimeout(() => onSetUserAsChange(), 150);
+            logToScreen("✅ Pohon silsilah selesai dirapikan!");
+        }
+		
         function renderLines() {
             const svg = document.getElementById('treeLines'); const c = document.getElementById('treeUI'); if(!svg || !c) return; svg.innerHTML = ''; 
             function getCoords(el) { let top=0, left=0; let w=el.offsetWidth, h=el.offsetHeight; let cur=el; while(cur && cur!==c) { top+=cur.offsetTop; left+=cur.offsetLeft; cur=cur.offsetParent; } return { top, bottom: top+h, left, right: left+w, cx: left+(w/2), cy: top+(h/2) }; }
